@@ -6,6 +6,7 @@ object DownloadOptions {
             "${format.formatId}+$it/${format.formatId}"
         } ?: format.formatId
 
+        DownloadMode.AUDIO_ORIGINAL,
         DownloadMode.AUDIO_MP3 -> format.formatId
     }
 
@@ -16,6 +17,7 @@ object DownloadOptions {
         val safeId = format.formatId.replace(Regex("[^A-Za-z0-9_-]"), "_").take(32)
         return when (format.mode) {
             DownloadMode.VIDEO -> "video-${format.height.takeIf { it > 0 } ?: "unknown"}p-$safeId"
+            DownloadMode.AUDIO_ORIGINAL -> "audio-original-$safeId"
             DownloadMode.AUDIO_MP3 -> "audio-${audioBitrate(format).lowercase()}-$safeId"
         }
     }

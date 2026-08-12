@@ -16,17 +16,17 @@ import java.io.File
 import java.util.Locale
 
 class DownloadNotifier(private val context: Context) {
-    private var lastPercentage = -1
-    private var lastStatus: String? = null
+    private val lastStates = mutableMapOf<String, Pair<Int, String>>()
 
     @Synchronized
-    fun showProgress(progress: DownloadProgress, force: Boolean = false) {
+    fun showProgress(task: DownloadTask, force: Boolean = false) {
         if (!canPostNotifications()) return
+        val progress = task.progress
         val percentage = progress.percentage.coerceIn(0f, 100f).toInt()
-        if (!force && percentage == lastPercentage && progress.status == lastStatus) return
+        val newState = percentage to progress.status
+        if (!force && lastStates[task.id] == newState) return
 
-        lastPercentage = percentage
-        lastStatus = progress.status
+        lastStates[task.id] = newState
         val detail = buildString {
             append(String.format(Locale.US, "%.1f%%", progress.percentage))
             progress.etaSeconds?.let { append(" • ETA ${formatEta(it)}") }
@@ -34,23 +34,24 @@ class DownloadNotifier(private val context: Context) {
         notify(
             NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_download)
-                .setContentTitle(progress.status)
+                .setContentTitle("${task.title}: ${progress.status}")
                 .setContentText(detail)
                 .setProgress(100, percentage, false)
-                .setContentIntent(openAppIntent())
+                .setContentIntent(openAppIntent(task.id))
                 .setCategory(NotificationCompat.CATEGORY_PROGRESS)
                 .setOnlyAlertOnce(true)
                 .setOngoing(true)
                 .setSilent(true)
                 .build(),
+            task.id,
         )
     }
 
     @Synchronized
-    fun showCompleted(file: File) {
-        lastPercentage = 100
-        lastStatus = "Completed"
+    fun showCompleted(taskId: String, file: File) {
+        lastStates.remove(taskId)
         showTerminal(
+            taskId = taskId,
             title = "Download completed",
             detail = file.name,
             icon = android.R.drawable.stat_sys_download_done,
@@ -58,17 +59,16 @@ class DownloadNotifier(private val context: Context) {
     }
 
     @Synchronized
-    fun showCancelled() {
-        lastPercentage = -1
-        lastStatus = null
-        showTerminal("Download cancelled", "The download was stopped.")
+    fun showCancelled(taskId: String) {
+        lastStates.remove(taskId)
+        showTerminal(taskId, "Download cancelled", "The download was stopped.")
     }
 
     @Synchronized
-    fun showFailed(message: String) {
-        lastPercentage = -1
-        lastStatus = null
+    fun showFailed(taskId: String, message: String) {
+        lastStates.remove(taskId)
         showTerminal(
+            taskId = taskId,
             title = "Download failed",
             detail = message.take(180),
             icon = android.R.drawable.stat_notify_error,
@@ -76,6 +76,7 @@ class DownloadNotifier(private val context: Context) {
     }
 
     private fun showTerminal(
+        taskId: String,
         title: String,
         detail: String,
         icon: Int = android.R.drawable.stat_sys_warning,
@@ -87,19 +88,20 @@ class DownloadNotifier(private val context: Context) {
                 .setContentTitle(title)
                 .setContentText(detail)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
-                .setContentIntent(openAppIntent())
+                .setContentIntent(openAppIntent(taskId))
                 .setAutoCancel(true)
                 .setOnlyAlertOnce(true)
                 .build(),
+            taskId,
         )
     }
 
-    private fun openAppIntent(): PendingIntent {
+    private fun openAppIntent(taskId: String): PendingIntent {
         val intent = Intent(context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         return PendingIntent.getActivity(
             context,
-            0,
+            notificationId(taskId),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -113,14 +115,16 @@ class DownloadNotifier(private val context: Context) {
             ) == PackageManager.PERMISSION_GRANTED
 
     @SuppressLint("MissingPermission")
-    private fun notify(notification: android.app.Notification) {
-        runCatching { NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification) }
+    private fun notify(notification: android.app.Notification, taskId: String) {
+        runCatching {
+            NotificationManagerCompat.from(context).notify(notificationId(taskId), notification)
+        }
     }
+
+    private fun notificationId(taskId: String): Int = taskId.hashCode() and 0x7fffffff
 
     companion object {
         private const val CHANNEL_ID = "media_downloads"
-        private const val NOTIFICATION_ID = 4107
-
         fun createChannel(context: Context) {
             val channel = NotificationChannel(
                 CHANNEL_ID,

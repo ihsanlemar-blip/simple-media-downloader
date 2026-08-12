@@ -1,2 +1,5 @@
-# Version 1 does not minify. Keep this file for a conventional release build.
+# The embedded downloader discovers parts of its Java/Python bridge reflectively.
+-keep class com.yausername.youtubedl_android.** { *; }
+-keep class com.yausername.ffmpeg.** { *; }
+-keepattributes RuntimeVisibleAnnotations,RuntimeInvisibleAnnotations,AnnotationDefault
 

@@ -10,43 +10,54 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class SimpleMediaDownloaderApp : Application() {
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val ffmpegMutex = Mutex()
 
     override fun onCreate() {
         super.onCreate()
         DownloadNotifier.createChannel(this)
-        applicationScope.launch { initializeBackends() }
+        applicationScope.launch { initializeYoutubeDl() }
     }
 
-    private fun initializeBackends() {
-        var youtubeDlReady = false
-        var ffmpegReady = false
-        val errors = mutableListOf<String>()
-
+    private fun initializeYoutubeDl() {
         try {
             YoutubeDL.getInstance().init(this)
-            youtubeDlReady = true
+            _backendState.value = BackendState(
+                initializing = false,
+                youtubeDlReady = true,
+            )
         } catch (error: Exception) {
             Log.e(TAG, "yt-dlp initialization failed", error)
-            errors += "Download engine: ${error.message ?: error.javaClass.simpleName}"
+            _backendState.value = BackendState(
+                initializing = false,
+                error = "Download engine: ${error.message ?: error.javaClass.simpleName}",
+            )
         }
+    }
 
-        try {
-            FFmpeg.getInstance().init(this)
-            ffmpegReady = true
-        } catch (error: Exception) {
-            Log.e(TAG, "FFmpeg initialization failed", error)
-            errors += "FFmpeg: ${error.message ?: error.javaClass.simpleName}"
-        }
+    suspend fun ensureFfmpeg(): Result<Unit> = ffmpegMutex.withLock {
+        if (_backendState.value.ffmpegReady) return@withLock Result.success(Unit)
+        _backendState.value = _backendState.value.copy(ffmpegInitializing = true)
 
-        _backendState.value = BackendState(
-            initializing = false,
-            youtubeDlReady = youtubeDlReady,
-            ffmpegReady = ffmpegReady,
-            error = errors.takeIf { it.isNotEmpty() }?.joinToString("; "),
-        )
+        runCatching { FFmpeg.getInstance().init(this) }
+            .onSuccess {
+                _backendState.value = _backendState.value.copy(
+                    ffmpegInitializing = false,
+                    ffmpegReady = true,
+                    error = null,
+                )
+            }
+            .onFailure { error ->
+                Log.e(TAG, "FFmpeg initialization failed", error)
+                _backendState.value = _backendState.value.copy(
+                    ffmpegInitializing = false,
+                    error = "Media converter: ${error.message ?: error.javaClass.simpleName}",
+                )
+            }
     }
 
     companion object {

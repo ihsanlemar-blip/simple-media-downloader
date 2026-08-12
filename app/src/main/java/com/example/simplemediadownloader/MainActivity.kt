@@ -68,7 +68,7 @@ class MainActivity : ComponentActivity() {
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        if (granted) viewModel.republishDownloadNotification()
+        if (granted) viewModel.republishDownloadNotifications()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -107,7 +107,7 @@ class MainActivity : ComponentActivity() {
         ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            viewModel.republishDownloadNotification()
+            viewModel.republishDownloadNotifications()
         }
     }
 }
@@ -153,7 +153,7 @@ private fun DownloaderScreen(
                                 },
                                 enabled = state.backend.youtubeDlReady &&
                                     !state.isUpdatingBackend &&
-                                    !state.isDownloading &&
+                                    state.activeTaskCount == 0 &&
                                     !state.isDiscoveringFormats,
                                 onClick = {
                                     showMenu = false
@@ -179,7 +179,7 @@ private fun DownloaderScreen(
             OutlinedTextField(
                 value = state.url,
                 onValueChange = viewModel::setUrl,
-                enabled = !state.isDownloading && !state.isDiscoveringFormats,
+                enabled = !state.isDiscoveringFormats,
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Media URL") },
                 placeholder = { Text("https://…") },
@@ -190,27 +190,41 @@ private fun DownloaderScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(
                     onClick = viewModel::pasteFromClipboard,
-                    enabled = !state.isDownloading && !state.isDiscoveringFormats,
+                    enabled = !state.isDiscoveringFormats,
                 ) {
                     Text("Paste")
                 }
                 OutlinedButton(
                     onClick = viewModel::clearUrl,
-                    enabled = !state.isDownloading && !state.isDiscoveringFormats,
+                    enabled = !state.isDiscoveringFormats,
                 ) {
                     Text("Clear")
                 }
             }
 
-            Button(
-                onClick = viewModel::chooseFormat,
-                enabled = state.backend.ready &&
-                    !state.isDownloading &&
-                    !state.isDiscoveringFormats &&
-                    state.url.isNotBlank(),
+            Row(
                 modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Download")
+                Button(
+                    onClick = {
+                        onRequestNotificationPermission()
+                        viewModel.fastDownload()
+                    },
+                    enabled = state.backend.ready && state.url.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Fast download")
+                }
+                OutlinedButton(
+                    onClick = viewModel::chooseFormat,
+                    enabled = state.backend.ready &&
+                        !state.isDiscoveringFormats &&
+                        state.url.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Choose quality")
+                }
             }
 
             if (state.isDiscoveringFormats) {
@@ -232,19 +246,29 @@ private fun DownloaderScreen(
                 }
             }
 
-            if (state.isDownloading) {
-                DownloadProgressCard(state.progress, viewModel::cancel)
-            }
-
-            when (val result = state.result) {
-                is DownloadResult.Success -> SuccessCard(
-                    file = result.file,
-                    onOpen = { openFile(context = context, file = result.file) },
-                    onShare = { shareFile(context = context, file = result.file) },
-                )
-                DownloadResult.Cancelled -> ResultCard("Cancelled", "The download was stopped.")
-                is DownloadResult.Failure -> ResultCard("Download failed", result.message)
-                null -> Unit
+            if (state.tasks.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Downloads (${state.activeTaskCount} active)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    if (state.tasks.any { !it.isActive }) {
+                        TextButton(onClick = viewModel::clearFinishedTasks) { Text("Clear finished") }
+                    }
+                }
+                state.tasks.forEach { task ->
+                    DownloadTaskCard(
+                        task = task,
+                        onCancel = { viewModel.cancel(task.id) },
+                        onOpen = { result -> openFile(context, result.file) },
+                        onShare = { result -> shareFile(context, result.file) },
+                    )
+                }
             }
 
             HorizontalDivider()
@@ -274,7 +298,9 @@ private fun DownloaderScreen(
 private fun BackendStatus(backend: BackendState) {
     val text = when {
         backend.initializing -> "Preparing download engine…"
-        backend.ready -> "Ready to download"
+        backend.ffmpegInitializing -> "Ready • preparing converter for an advanced format…"
+        backend.ready && backend.ffmpegReady -> "Ready • fast and converted formats available"
+        backend.ready -> "Ready • converter loads only when needed"
         else -> "Download engine unavailable • ${backend.error ?: "Initialization failed"}"
     }
     Text(
@@ -290,9 +316,17 @@ private fun FormatPickerDialog(
     onDismiss: () -> Unit,
     onSelected: (AvailableFormat) -> Unit,
 ) {
-    val initialMode = if (catalog.videoFormats.isNotEmpty()) DownloadMode.VIDEO else DownloadMode.AUDIO_MP3
+    val initialMode = if (catalog.videoFormats.isNotEmpty()) {
+        DownloadMode.VIDEO
+    } else {
+        DownloadMode.AUDIO_ORIGINAL
+    }
     var mode by remember(catalog.sourceUrl) { mutableStateOf(initialMode) }
-    val formats = if (mode == DownloadMode.VIDEO) catalog.videoFormats else catalog.audioFormats
+    val formats = when (mode) {
+        DownloadMode.VIDEO -> catalog.videoFormats
+        DownloadMode.AUDIO_ORIGINAL,
+        DownloadMode.AUDIO_MP3 -> catalog.audioFormats.filter { it.mode == mode }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -312,10 +346,16 @@ private fun FormatPickerDialog(
                         label = { Text("Video (${catalog.videoFormats.size})") },
                     )
                     FilterChip(
+                        selected = mode == DownloadMode.AUDIO_ORIGINAL,
+                        onClick = { mode = DownloadMode.AUDIO_ORIGINAL },
+                        enabled = catalog.audioFormats.any { it.mode == DownloadMode.AUDIO_ORIGINAL },
+                        label = { Text("Original") },
+                    )
+                    FilterChip(
                         selected = mode == DownloadMode.AUDIO_MP3,
                         onClick = { mode = DownloadMode.AUDIO_MP3 },
-                        enabled = catalog.audioFormats.isNotEmpty(),
-                        label = { Text("Audio MP3 (${catalog.audioFormats.size})") },
+                        enabled = catalog.audioFormats.any { it.mode == DownloadMode.AUDIO_MP3 },
+                        label = { Text("MP3") },
                     )
                 }
                 Text(
@@ -340,8 +380,8 @@ private fun FormatPickerDialog(
                     }
                 }
                 Text(
-                    "Sizes marked ≈ are estimates. Missing lower resolutions are created locally " +
-                        "without upscaling.",
+                    "Original audio and native video avoid conversion. MP3 and separate high-quality " +
+                        "streams load the converter only when needed.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -357,10 +397,18 @@ private fun FormatPickerDialog(
 private fun FormatRow(format: AvailableFormat, onClick: () -> Unit) {
     val title = when (format.mode) {
         DownloadMode.VIDEO -> buildString {
-            if (format.isQuickPreset) append("Up to ")
-            append("${format.height}p")
+            if (format.height > 0) {
+                if (format.isQuickPreset) append("Fast up to ")
+                append("${format.height}p")
+            } else {
+                append("Fast best video")
+            }
             if (format.fps > 0) append(" • ${format.fps} fps")
             if (format.width > 0) append(" • ${format.width}×${format.height}")
+        }
+        DownloadMode.AUDIO_ORIGINAL -> buildString {
+            append("Original audio")
+            if (format.bitrateKbps > 0) append(" • ${format.bitrateKbps} kbps")
         }
         DownloadMode.AUDIO_MP3 -> "${format.bitrateKbps} kbps MP3"
     }
@@ -401,6 +449,55 @@ internal fun formatSizeLabel(format: AvailableFormat): String {
     val number = if (value >= 100 || unit == 0) String.format(Locale.US, "%.0f", value)
     else String.format(Locale.US, "%.1f", value)
     return (if (format.sizeIsApproximate) "≈ " else "") + "$number ${units[unit]}"
+}
+
+@Composable
+private fun DownloadTaskCard(
+    task: DownloadTask,
+    onCancel: () -> Unit,
+    onOpen: (DownloadResult.Success) -> Unit,
+    onShare: (DownloadResult.Success) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(task.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(task.url, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+            if (task.isActive) {
+                Text(task.progress.status, fontWeight = FontWeight.SemiBold)
+                LinearProgressIndicator(
+                    progress = { task.progress.percentage / 100f },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(String.format(Locale.US, "%.1f%%", task.progress.percentage))
+                    task.progress.etaSeconds?.let { Text("ETA ${formatEta(it)}") }
+                }
+                OutlinedButton(onClick = onCancel, modifier = Modifier.align(Alignment.End)) {
+                    Text("Cancel")
+                }
+            } else {
+                when (val result = task.result) {
+                    is DownloadResult.Success -> {
+                        Text(result.file.absolutePath, style = MaterialTheme.typography.bodySmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Button(onClick = { onOpen(result) }) { Text("Open") }
+                            OutlinedButton(onClick = { onShare(result) }) { Text("Share") }
+                        }
+                    }
+                    DownloadResult.Cancelled -> Text("Cancelled")
+                    is DownloadResult.Failure -> Text("Failed: ${result.message}")
+                    null -> Text("Finished")
+                }
+            }
+        }
+    }
 }
 
 @Composable

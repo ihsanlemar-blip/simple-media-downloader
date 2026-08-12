@@ -20,21 +20,28 @@ class MediaDownloader {
 
     fun quickFormatCatalog(url: String): MediaFormatCatalog = MediaFormatCatalog(
         sourceUrl = url,
-        title = "Common quality presets",
+        title = "Fast native downloads",
         videoFormats = QUICK_OUTPUT_HEIGHTS.map { height ->
             AvailableFormat(
                 key = "quick-video-$height",
                 mode = DownloadMode.VIDEO,
-                formatId = "bestvideo[height<=$height]+bestaudio/best[height<=$height]/" +
-                    "best[height<=$height]/bestvideo+bestaudio/best",
-                extension = "mkv",
+                formatId = "best[height<=$height][vcodec!=none][acodec!=none]",
+                extension = "source",
                 height = height,
-                formatNote = "Exact size loading",
-                requiresDownscale = true,
+                formatNote = "No conversion",
                 isQuickPreset = true,
             )
         },
-        audioFormats = QUICK_AUDIO_BITRATES.map { bitrate ->
+        audioFormats = listOf(
+            AvailableFormat(
+                key = "quick-audio-original",
+                mode = DownloadMode.AUDIO_ORIGINAL,
+                formatId = "bestaudio/best",
+                extension = "source",
+                formatNote = "No conversion",
+                isQuickPreset = true,
+            ),
+        ) + QUICK_AUDIO_BITRATES.map { bitrate ->
             AvailableFormat(
                 key = "quick-audio-$bitrate",
                 mode = DownloadMode.AUDIO_MP3,
@@ -46,6 +53,15 @@ class MediaDownloader {
             )
         },
         detailsLoading = true,
+    )
+
+    fun fastVideoPreset(): AvailableFormat = AvailableFormat(
+        key = "fast-video",
+        mode = DownloadMode.VIDEO,
+        formatId = "best[vcodec!=none][acodec!=none]",
+        extension = "source",
+        formatNote = "Best native video with audio; no conversion",
+        isQuickPreset = true,
     )
 
     suspend fun discoverFormats(url: String): FormatDiscoveryResult = withContext(Dispatchers.IO) {
@@ -84,7 +100,7 @@ class MediaDownloader {
         }
 
         val before = outputDirectory.listFiles().orEmpty().associate { it.name to it.lastModified() }
-        val request = buildRequest(url, format, outputDirectory)
+        val request = buildRequest(url, format, outputDirectory, processId.take(8))
         activeProcessIds += processId
 
         try {
@@ -143,11 +159,13 @@ class MediaDownloader {
         url: String,
         format: AvailableFormat,
         outputDirectory: File,
+        taskSuffix: String = "",
     ): YoutubeDLRequest {
         val variantSuffix = DownloadOptions.variantSuffix(format)
+        val uniqueSuffix = taskSuffix.takeIf(String::isNotBlank)?.let { " task-$it" }.orEmpty()
         val outputTemplate = File(
             outputDirectory,
-            "%(title).160B [%(id)s] $variantSuffix.%(ext)s",
+            "%(title).150B [%(id)s] $variantSuffix$uniqueSuffix.%(ext)s",
         ).absolutePath
 
         return YoutubeDLRequest(url)
@@ -155,6 +173,7 @@ class MediaDownloader {
             .addOption("--restrict-filenames")
             .addOption("--windows-filenames")
             .addOption("--newline")
+            .addOption("--concurrent-fragments", CONCURRENT_FRAGMENTS.toString())
             .apply {
                 if (needsEjs(url)) addOption("--remote-components", "ejs:github")
             }
@@ -184,6 +203,8 @@ class MediaDownloader {
                             )
                         }
                     }
+
+                    DownloadMode.AUDIO_ORIGINAL -> Unit
 
                     DownloadMode.AUDIO_MP3 -> {
                         addOption("--extract-audio")
@@ -249,12 +270,18 @@ class MediaDownloader {
 
         val audioSources = audioOnly.ifEmpty { audioCapable }
         val audioFormats = audioSources
-            .map { raw -> audioOption(raw, info.duration) }
+            .flatMap { raw ->
+                listOf(
+                    audioOption(raw, info.duration, DownloadMode.AUDIO_ORIGINAL),
+                    audioOption(raw, info.duration, DownloadMode.AUDIO_MP3),
+                )
+            }
             .distinctBy {
-                listOf(it.bitrateKbps, it.codec, it.extension, it.estimatedSizeBytes)
+                listOf(it.mode, it.bitrateKbps, it.codec, it.extension, it.estimatedSizeBytes)
             }
             .sortedWith(
-                compareByDescending<AvailableFormat> { it.bitrateKbps }
+                compareBy<AvailableFormat> { it.mode.ordinal }
+                    .thenByDescending { it.bitrateKbps }
                     .thenByDescending { it.estimatedSizeBytes ?: 0L }
                     .thenBy { it.extension }
                     .thenBy { it.formatId },
@@ -272,32 +299,14 @@ class MediaDownloader {
 
     internal fun buildResolutionLadder(nativeFormats: List<AvailableFormat>): List<AvailableFormat> {
         if (nativeFormats.isEmpty()) return emptyList()
-        val maximumHeight = nativeFormats.maxOf(AvailableFormat::height)
-        val minimumHeight = if (maximumHeight >= MINIMUM_OUTPUT_HEIGHT) MINIMUM_OUTPUT_HEIGHT else maximumHeight
-        val targets = (
-            nativeFormats.map(AvailableFormat::height) +
-                STANDARD_OUTPUT_HEIGHTS.filter { it <= maximumHeight }
-            )
-            .filter { it in minimumHeight..maximumHeight }
-            .distinct()
-            .sortedDescending()
-
-        return targets.mapNotNull { targetHeight ->
-            val exact = bestNativeFormat(nativeFormats.filter { it.height == targetHeight })
-            if (exact != null) {
-                exact.copy(key = "${exact.key}:output-$targetHeight", sourceHeight = exact.height)
-            } else {
-                val nearestSourceHeight = nativeFormats
-                    .asSequence()
-                    .map(AvailableFormat::height)
-                    .filter { it > targetHeight }
-                    .minOrNull()
-                    ?: return@mapNotNull null
-                val source = bestNativeFormat(nativeFormats.filter { it.height == nearestSourceHeight })
-                    ?: return@mapNotNull null
-                downscaledOption(source, targetHeight)
+        return nativeFormats
+            .groupBy(AvailableFormat::height)
+            .toSortedMap(reverseOrder())
+            .mapNotNull { (height, formats) ->
+                bestNativeFormat(formats)?.let { best ->
+                    best.copy(key = "${best.key}:native-$height", sourceHeight = height)
+                }
             }
-        }
     }
 
     private fun bestNativeFormat(formats: List<AvailableFormat>): AvailableFormat? =
@@ -367,23 +376,32 @@ class MediaDownloader {
         )
     }
 
-    private fun audioOption(raw: VideoFormat, durationSeconds: Int): AvailableFormat {
+    private fun audioOption(
+        raw: VideoFormat,
+        durationSeconds: Int,
+        mode: DownloadMode,
+    ): AvailableFormat {
         val bitrate = audioBitrate(raw).coerceIn(32, 320)
-        val mp3Estimate = if (durationSeconds > 0) {
+        val sourceSize = formatSize(raw, durationSeconds)
+        val outputSize = if (mode == DownloadMode.AUDIO_MP3 && durationSeconds > 0) {
             durationSeconds.toLong() * bitrate * 1_000L / 8L
         } else {
-            formatSize(raw, durationSeconds).bytes
+            sourceSize.bytes
         }
         return AvailableFormat(
-            key = "audio:${raw.formatId.orEmpty()}",
-            mode = DownloadMode.AUDIO_MP3,
+            key = "audio:${mode.name.lowercase()}:${raw.formatId.orEmpty()}",
+            mode = mode,
             formatId = raw.formatId.orEmpty(),
-            extension = raw.ext.orEmpty().ifBlank { "audio" },
+            extension = if (mode == DownloadMode.AUDIO_MP3) {
+                "mp3"
+            } else {
+                raw.ext.orEmpty().ifBlank { "audio" }
+            },
             bitrateKbps = bitrate,
             codec = raw.acodec.orEmpty(),
             formatNote = raw.formatNote.orEmpty(),
-            estimatedSizeBytes = mp3Estimate,
-            sizeIsApproximate = true,
+            estimatedSizeBytes = outputSize,
+            sizeIsApproximate = mode == DownloadMode.AUDIO_MP3 || sourceSize.approximate,
         )
     }
 
@@ -497,5 +515,6 @@ class MediaDownloader {
         private val STANDARD_OUTPUT_HEIGHTS = listOf(4320, 2160, 1440, 1080, 720, 480, 360, 240, 144)
         private val QUICK_OUTPUT_HEIGHTS = listOf(2160, 1440, 1080, 720, 480, 360, 240, 144)
         private val QUICK_AUDIO_BITRATES = listOf(320, 256, 192, 128, 96)
+        private const val CONCURRENT_FRAGMENTS = 4
     }
 }

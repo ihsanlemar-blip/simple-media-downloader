@@ -21,13 +21,12 @@ data class MainUiState(
     val isDiscoveringFormats: Boolean = false,
     val formatCatalog: MediaFormatCatalog? = null,
     val showFormatPicker: Boolean = false,
-    val isDownloading: Boolean = false,
-    val activeProcessId: String? = null,
-    val progress: DownloadProgress = DownloadProgress(),
-    val result: DownloadResult? = null,
+    val tasks: List<DownloadTask> = emptyList(),
     val message: String? = null,
     val isUpdatingBackend: Boolean = false,
-)
+) {
+    val activeTaskCount: Int get() = tasks.count(DownloadTask::isActive)
+}
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val downloader = MediaDownloader()
@@ -56,7 +55,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update {
             it.copy(
                 url = value,
-                result = null,
                 formatCatalog = null,
                 showFormatPicker = false,
                 isDiscoveringFormats = false,
@@ -72,22 +70,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun acceptSharedText(text: String?) {
         val url = UrlExtractor.extractFirstHttpUrl(text)
         if (url == null) {
-            _uiState.update { it.copy(message = "The shared text does not contain an HTTP or HTTPS URL.") }
+            showMessage("The shared text does not contain an HTTP or HTTPS URL.")
+            return
+        }
+
+        setUrl(url)
+        if (_uiState.value.backend.ready) {
+            discoverFormats(url)
         } else {
-            setUrl(url)
-            if (_uiState.value.isDownloading) {
-                pendingSharedUrl = url
-                _uiState.update {
-                    it.copy(message = "Shared URL added. Finish or cancel the current download first.")
-                }
-            } else if (_uiState.value.backend.ready) {
-                discoverFormats(url)
-            } else {
-                pendingSharedUrl = url
-                _uiState.update {
-                    it.copy(message = "Shared URL added. Formats will open when the backend is ready.")
-                }
-            }
+            pendingSharedUrl = url
+            showMessage("Shared URL added. Formats will open when the engine is ready.")
         }
     }
 
@@ -102,25 +94,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val url = UrlExtractor.extractFirstHttpUrl(text)
 
         if (url == null) {
-            _uiState.update { it.copy(message = "Clipboard does not contain an HTTP or HTTPS URL.") }
+            showMessage("Clipboard does not contain an HTTP or HTTPS URL.")
         } else {
             setUrl(url)
-            _uiState.update { it.copy(message = "URL pasted. Tap Download to choose a format.") }
+            showMessage("URL pasted. Use Fast download or choose a quality.")
         }
+    }
+
+    fun fastDownload() {
+        val url = validCurrentUrl() ?: return
+        enqueueDownload(url, downloader.fastVideoPreset(), "Fast video")
     }
 
     fun chooseFormat() {
         val snapshot = _uiState.value
-        if (snapshot.isDownloading || snapshot.isDiscoveringFormats) return
+        if (snapshot.isDiscoveringFormats) return
         if (!snapshot.backend.ready) {
-            _uiState.update { it.copy(message = "The download backend is not ready.") }
+            showMessage("The download engine is not ready.")
             return
         }
-        val url = UrlExtractor.extractFirstHttpUrl(snapshot.url)
-        if (url == null || url != snapshot.url.trim()) {
-            _uiState.update { it.copy(message = "Enter one valid HTTP or HTTPS URL.") }
-            return
-        }
+        val url = validCurrentUrl() ?: return
 
         if (snapshot.formatCatalog?.sourceUrl == url) {
             _uiState.update { it.copy(showFormatPicker = true) }
@@ -135,9 +128,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun download(format: AvailableFormat) {
         val snapshot = _uiState.value
-        if (snapshot.isDownloading) return
         if (!snapshot.backend.ready) {
-            _uiState.update { it.copy(message = "The download backend is not ready.") }
+            showMessage("The download engine is not ready.")
             return
         }
         val url = UrlExtractor.extractFirstHttpUrl(snapshot.url)
@@ -146,70 +138,109 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ?.let { format in it.videoFormats || format in it.audioFormats }
             ?: false
         if (url == null || !isCurrentFormat) {
-            _uiState.update { it.copy(message = "Formats are out of date. Tap Download to refresh them.") }
+            showMessage("Formats are out of date. Choose quality again to refresh them.")
             return
         }
 
-        discoveryGeneration++
+        _uiState.update { it.copy(showFormatPicker = false) }
+        enqueueDownload(url, format, formatTaskTitle(format))
+    }
+
+    private fun enqueueDownload(url: String, format: AvailableFormat, title: String) {
         val processId = UUID.randomUUID().toString()
-        val initialProgress = DownloadProgress(status = "Connecting…")
-        _uiState.update {
-            it.copy(
-                isDownloading = true,
-                activeProcessId = processId,
-                progress = initialProgress,
-                result = null,
-                showFormatPicker = false,
-                isDiscoveringFormats = false,
-            )
-        }
-        notifier.showProgress(initialProgress, force = true)
+        val initialProgress = DownloadProgress(status = "Queued...")
+        val task = DownloadTask(
+            id = processId,
+            url = url,
+            title = title,
+            format = format,
+            progress = initialProgress,
+        )
+        _uiState.update { it.copy(tasks = listOf(task) + it.tasks) }
+        notifier.showProgress(task, force = true)
 
         viewModelScope.launch {
+            if (format.requiresFfmpeg) {
+                updateTaskProgress(processId, DownloadProgress(status = "Preparing media converter..."))
+                val ffmpegResult = getApplication<SimpleMediaDownloaderApp>().ensureFfmpeg()
+                if (ffmpegResult.isFailure) {
+                    finishTask(
+                        processId,
+                        DownloadResult.Failure(
+                            "The selected format needs the media converter, but it could not start: " +
+                                (ffmpegResult.exceptionOrNull()?.message ?: "unknown error"),
+                        ),
+                    )
+                    return@launch
+                }
+            }
+
             val result = downloader.download(
                 url = url,
                 format = format,
                 processId = processId,
-            ) { progress ->
-                if (_uiState.value.activeProcessId == processId) {
-                    _uiState.update { current ->
-                        if (current.activeProcessId == processId) {
-                            current.copy(progress = progress)
-                        } else {
-                            current
-                        }
-                    }
-                    notifier.showProgress(progress)
-                }
-            }
+            ) { progress -> updateTaskProgress(processId, progress) }
+            finishTask(processId, result)
+        }
+    }
 
-            if (_uiState.value.activeProcessId == processId) {
-                when (result) {
-                    is DownloadResult.Success -> notifier.showCompleted(result.file)
-                    DownloadResult.Cancelled -> notifier.showCancelled()
-                    is DownloadResult.Failure -> notifier.showFailed(result.message)
-                }
-            }
-            _uiState.update { current ->
-                if (current.activeProcessId == processId) {
-                    current.copy(
-                        isDownloading = false,
-                        activeProcessId = null,
-                        progress = if (result is DownloadResult.Success) {
-                            DownloadProgress(100f, null, "Completed")
-                        } else {
-                            current.progress
-                        },
-                        result = result,
-                    )
-                } else {
-                    current
-                }
-            }
-            pendingSharedUrl?.let { sharedUrl ->
-                pendingSharedUrl = null
-                discoverFormats(sharedUrl)
-            }
+    private fun updateTaskProgress(processId: String, progress: DownloadProgress) {
+        var updatedTask: DownloadTask? = null
+        _uiState.update { current ->
+            current.copy(
+                tasks = current.tasks.map { task ->
+                    if (task.id == processId && task.isActive) {
+                        task.copy(progress = progress).also { updatedTask = it }
+                    } else {
+                        task
+                    }
+                },
+            )
+        }
+        updatedTask?.let(notifier::showProgress)
+    }
+
+    private fun finishTask(processId: String, result: DownloadResult) {
+        val task = _uiState.value.tasks.firstOrNull { it.id == processId } ?: return
+        when (result) {
+            is DownloadResult.Success -> notifier.showCompleted(processId, result.file)
+            DownloadResult.Cancelled -> notifier.showCancelled(processId)
+            is DownloadResult.Failure -> notifier.showFailed(processId, result.message)
+        }
+        _uiState.update { current ->
+            current.copy(
+                tasks = current.tasks.map { item ->
+                    if (item.id == processId) {
+                        item.copy(
+                            isActive = false,
+                            progress = if (result is DownloadResult.Success) {
+                                DownloadProgress(100f, null, "Completed")
+                            } else {
+                                item.progress
+                            },
+                            result = result,
+                        )
+                    } else {
+                        item
+                    }
+                },
+            )
+        }
+    }
+
+    fun cancel(processId: String) {
+        val task = _uiState.value.tasks.firstOrNull { it.id == processId && it.isActive } ?: return
+        updateTaskProgress(processId, task.progress.copy(status = "Cancelling..."))
+        viewModelScope.launch { downloader.cancel(processId) }
+    }
+
+    fun clearFinishedTasks() {
+        _uiState.update { it.copy(tasks = it.tasks.filter(DownloadTask::isActive)) }
+    }
+
+    fun republishDownloadNotifications() {
+        _uiState.value.tasks.filter(DownloadTask::isActive).forEach {
+            notifier.showProgress(it, force = true)
         }
     }
 
@@ -221,7 +252,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isDiscoveringFormats = true,
                 formatCatalog = quickCatalog,
                 showFormatPicker = true,
-                result = null,
             )
         }
         viewModelScope.launch {
@@ -245,32 +275,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun cancel() {
-        val processId = _uiState.value.activeProcessId ?: return
-        val progress = _uiState.value.progress.copy(status = "Cancelling…")
-        _uiState.update { it.copy(progress = progress) }
-        notifier.showProgress(progress, force = true)
-        viewModelScope.launch {
-            downloader.cancel(processId)
-        }
-    }
-
-    fun republishDownloadNotification() {
-        val state = _uiState.value
-        if (state.isDownloading) notifier.showProgress(state.progress, force = true)
-    }
-
     fun updateYoutubeDl() {
         val snapshot = _uiState.value
         if (
             !snapshot.backend.youtubeDlReady ||
             snapshot.isUpdatingBackend ||
-            snapshot.isDownloading ||
+            snapshot.activeTaskCount > 0 ||
             snapshot.isDiscoveringFormats
         ) return
 
         _uiState.update {
-            it.copy(isUpdatingBackend = true, message = "Checking for a download engine update…")
+            it.copy(isUpdatingBackend = true, message = "Checking for a download engine update...")
         }
         viewModelScope.launch {
             val message = withContext(Dispatchers.IO) {
@@ -296,5 +311,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun consumeMessage() {
         _uiState.update { it.copy(message = null) }
+    }
+
+    private fun validCurrentUrl(): String? {
+        if (!_uiState.value.backend.ready) {
+            showMessage("The download engine is not ready.")
+            return null
+        }
+        val raw = _uiState.value.url.trim()
+        val url = UrlExtractor.extractFirstHttpUrl(raw)
+        if (url == null || url != raw) {
+            showMessage("Enter one valid HTTP or HTTPS URL.")
+            return null
+        }
+        return url
+    }
+
+    private fun showMessage(message: String) {
+        _uiState.update { it.copy(message = message) }
+    }
+
+    private fun formatTaskTitle(format: AvailableFormat): String = when (format.mode) {
+        DownloadMode.VIDEO -> if (format.height > 0) "${format.height}p video" else "Video"
+        DownloadMode.AUDIO_ORIGINAL -> "Original ${format.extension.uppercase()} audio"
+        DownloadMode.AUDIO_MP3 -> "${format.bitrateKbps} kbps MP3"
     }
 }

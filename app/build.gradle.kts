@@ -16,14 +16,12 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
-        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -37,11 +35,22 @@ android {
     }
 
     packaging {
+        // youtubedl-android opens libpython.zip.so directly from nativeLibraryDir.
+        // It must therefore be extracted during installation rather than left in the APK.
         jniLibs.useLegacyPackaging = true
         resources.excludes += setOf(
             "META-INF/AL2.0",
             "META-INF/LGPL2.1",
         )
+    }
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "x86_64")
+            isUniversalApk = false
+        }
     }
 
     compileOptions {
