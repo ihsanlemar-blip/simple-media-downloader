@@ -62,8 +62,8 @@ class DownloadOptionsTest {
     }
 
     @Test
-    fun `resolution ladder fills missing qualities down to 144 without upscaling`() {
-        val downloader = MediaDownloader()
+    fun `resolution ladder preserves native qualities without transcoding`() {
+        val downloader = YtDlpFormatDiscoveryEngine()
         val native1080 = AvailableFormat(
             key = "video:1080",
             mode = DownloadMode.VIDEO,
@@ -84,9 +84,8 @@ class DownloadOptionsTest {
 
         val ladder = downloader.buildResolutionLadder(listOf(native1080, native360))
 
-        assertEquals(listOf(1080, 720, 480, 360, 240, 144), ladder.map { it.height })
-        assertEquals(360, ladder.single { it.height == 144 }.sourceHeight)
-        assertEquals(true, ladder.single { it.height == 144 }.requiresDownscale)
+        assertEquals(listOf(1080, 360), ladder.map { it.height })
+        assertEquals(false, ladder.any(AvailableFormat::requiresDownscale))
 
         val tinySource = native360.copy(height = 120, sourceHeight = 120)
         assertEquals(listOf(120), downloader.buildResolutionLadder(listOf(tinySource)).map { it.height })

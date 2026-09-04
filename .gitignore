@@ -5,4 +5,6 @@ local.properties
 captures/
 .externalNativeBuild/
 .cxx/
+*.png
+simple-media-downloader/
 
