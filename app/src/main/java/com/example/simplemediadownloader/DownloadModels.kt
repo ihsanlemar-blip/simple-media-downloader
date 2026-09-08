@@ -23,6 +23,7 @@ data class AvailableFormat(
     val sourceHeight: Int = height,
     val requiresDownscale: Boolean = false,
     val isQuickPreset: Boolean = false,
+    val httpHeaders: Map<String, String>? = null,
 ) {
     val requiresFfmpeg: Boolean
         get() = requiresDownscale || companionAudioFormatId != null || mode == DownloadMode.AUDIO_MP3
@@ -34,6 +35,9 @@ data class MediaFormatCatalog(
     val videoFormats: List<AvailableFormat>,
     val audioFormats: List<AvailableFormat>,
     val detailsLoading: Boolean = false,
+    val author: String? = null,
+    val description: String? = null,
+    val thumbnailUrl: String? = null,
 )
 
 sealed interface FormatDiscoveryResult {

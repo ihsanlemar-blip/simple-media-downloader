@@ -171,60 +171,129 @@ private fun DownloaderScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            CompactBackendStatus(
-                backend = state.backend,
-                onRetry = viewModel::retryYoutubeDlInitialization,
-            )
-            OutlinedTextField(
-                value = state.url,
-                onValueChange = viewModel::setUrl,
+            Card(
+                shape = RoundedCornerShape(20.dp),
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Media URL") },
-                placeholder = { Text("https://…") },
-                singleLine = false,
-                minLines = 2,
-            )
-
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(
-                    onClick = viewModel::pasteFromClipboard,
-                ) {
-                    Text("Paste")
-                }
-                OutlinedButton(
-                    onClick = viewModel::clearUrl,
-                ) {
-                    Text("Clear")
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Button(
-                    onClick = {
-                        onRequestNotificationPermission()
-                        viewModel.fastDownload()
-                    },
-                    enabled = state.url.isNotBlank() &&
-                        (state.backend.ready ||
-                            state.defaultDownloadChoice == DefaultDownloadChoice.ALWAYS_ASK),
-                    modifier = Modifier.weight(1f),
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text(state.defaultDownloadChoice.actionLabel)
-                }
-                OutlinedButton(
-                    onClick = viewModel::chooseFormat,
-                    enabled = state.url.isNotBlank(),
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("Choose quality")
+                    CompactBackendStatus(
+                        backend = state.backend,
+                        onRetry = viewModel::retryYoutubeDlInitialization,
+                    )
+
+                    val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                    val clipText = clipboard?.primaryClip?.getItemAt(0)?.text?.toString().orEmpty().trim()
+                    val hasWebUrl = (clipText.startsWith("http://", ignoreCase = true) || clipText.startsWith("https://", ignoreCase = true)) && clipText != state.url
+                    if (state.url.isBlank() && hasWebUrl) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { viewModel.setUrl(clipText) },
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text("📋", style = MaterialTheme.typography.bodyMedium)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        "Tap to paste link from clipboard",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    )
+                                    Text(
+                                        clipText,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = state.url,
+                        onValueChange = viewModel::setUrl,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Media URL") },
+                        placeholder = { Text("Paste link: TikTok, Instagram, Facebook, YouTube, X, Reddit…") },
+                        singleLine = false,
+                        minLines = 2,
+                        shape = RoundedCornerShape(14.dp),
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = viewModel::pasteFromClipboard,
+                                shape = RoundedCornerShape(10.dp),
+                            ) {
+                                Text("Paste")
+                            }
+                            if (state.url.isNotBlank()) {
+                                OutlinedButton(
+                                    onClick = viewModel::clearUrl,
+                                    shape = RoundedCornerShape(10.dp),
+                                ) {
+                                    Text("Clear")
+                                }
+                            }
+                        }
+                        Text(
+                            "Multi-Platform Ready",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Button(
+                            onClick = {
+                                onRequestNotificationPermission()
+                                viewModel.fastDownload()
+                            },
+                            enabled = state.url.isNotBlank() &&
+                                (state.backend.ready ||
+                                    state.defaultDownloadChoice == DefaultDownloadChoice.ALWAYS_ASK),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(state.defaultDownloadChoice.actionLabel, fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = viewModel::chooseFormat,
+                            enabled = state.url.isNotBlank(),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("Choose quality", fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
             }
 
             if (state.isDiscoveringFormats) {
-                Card(modifier = Modifier.fillMaxWidth()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
                     Row(
                         modifier = Modifier.padding(16.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -234,7 +303,7 @@ private fun DownloaderScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("Checking available formats…", fontWeight = FontWeight.SemiBold)
                             Text(
-                                "Reading resolutions, audio qualities, and estimated sizes.",
+                                "Resolving direct streams, titles, and media quality.",
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
@@ -279,17 +348,28 @@ private fun DownloaderScreen(
                     )
                 }
             } else {
-                Card(modifier = Modifier.fillMaxWidth()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                ) {
                     Column(
                         modifier = Modifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Text("No downloads yet", fontWeight = FontWeight.Bold)
+                        Text("Ready to download", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "Paste a public media link above to start your first download.",
+                            "Copy any public media link and paste it above. Original video titles and media metadata are automatically preserved.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            listOf("YouTube", "TikTok", "Instagram", "Facebook", "X", "Reddit").forEach { platform ->
+                                PlatformBadge(platform)
+                            }
+                        }
                     }
                 }
             }
@@ -500,15 +580,31 @@ private fun FormatPickerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(22.dp),
         title = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Choose format")
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Select Quality", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    PlatformBadge(PlatformResolver.fromUrl(catalog.sourceUrl))
+                }
                 Text(
                     text = catalog.title,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
+                if (!catalog.author.isNullOrBlank()) {
+                    Text(
+                        text = "Creator: ${catalog.author}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         },
         text = {
@@ -616,6 +712,7 @@ private fun FormatRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = enabled, onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
     ) {
         Column(
             modifier = Modifier.padding(12.dp),
@@ -658,6 +755,7 @@ internal fun DownloadTaskCard(
         modifier = Modifier
             .fillMaxWidth()
             .semantics { contentDescription = "Download task for ${task.title}" },
+        shape = RoundedCornerShape(16.dp),
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -694,8 +792,8 @@ internal fun DownloadTaskCard(
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { onOpen(result) }) { Text("Open") }
-                            OutlinedButton(onClick = { onShare(result) }) { Text("Share") }
+                            Button(onClick = { onOpen(result) }, shape = RoundedCornerShape(10.dp)) { Text("Open") }
+                            OutlinedButton(onClick = { onShare(result) }, shape = RoundedCornerShape(10.dp)) { Text("Share") }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(onClick = onDelete) { Text("Delete media") }
@@ -722,12 +820,12 @@ internal fun DownloadTaskCard(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            OutlinedButton(onClick = { onCopyDetails(technical) }) {
+                            OutlinedButton(onClick = { onCopyDetails(technical) }, shape = RoundedCornerShape(10.dp)) {
                                 Text("Copy details")
                             }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = onRetry) { Text("Retry") }
+                            Button(onClick = onRetry, shape = RoundedCornerShape(10.dp)) { Text("Retry") }
                             TextButton(onClick = onRemove) { Text("Remove history") }
                         }
                     }
@@ -800,15 +898,25 @@ private fun TaskProgress(task: DownloadTask) {
 
 @Composable
 private fun PlatformBadge(platform: String) {
+    val (bgColor, contentColor) = when (platform.lowercase()) {
+        "youtube" -> androidx.compose.ui.graphics.Color(0xFFFFEBEE) to androidx.compose.ui.graphics.Color(0xFFD32F2F)
+        "tiktok" -> androidx.compose.ui.graphics.Color(0xFFE0F7FA) to androidx.compose.ui.graphics.Color(0xFF00838F)
+        "instagram" -> androidx.compose.ui.graphics.Color(0xFFFCE4EC) to androidx.compose.ui.graphics.Color(0xFFAD1457)
+        "facebook" -> androidx.compose.ui.graphics.Color(0xFFE8EAF6) to androidx.compose.ui.graphics.Color(0xFF283593)
+        "x", "twitter" -> androidx.compose.ui.graphics.Color(0xFFECEFF1) to androidx.compose.ui.graphics.Color(0xFF37474F)
+        "reddit" -> androidx.compose.ui.graphics.Color(0xFFFBE9E7) to androidx.compose.ui.graphics.Color(0xFFD84315)
+        else -> MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
+    }
     Surface(
-        shape = RoundedCornerShape(50),
-        color = MaterialTheme.colorScheme.secondaryContainer,
+        shape = RoundedCornerShape(8.dp),
+        color = bgColor,
     ) {
         Text(
-            platform,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            text = platform,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = contentColor,
         )
     }
 }

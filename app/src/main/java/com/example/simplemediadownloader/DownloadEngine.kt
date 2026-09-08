@@ -88,8 +88,8 @@ class OkHttpDownloadEngine(
 
             val safeTitle = MediaExportPolicy.sanitizeDisplayName(request.title, resolvedFormat.extension)
                 .substringBeforeLast('.')
-                .take(100)
-            val baseName = "$safeTitle [${request.id.take(8)}]"
+                .take(120)
+            val baseName = safeTitle
 
             val isMuxing = resolvedFormat.companionAudioFormatId != null
             val finalFile = if (isMuxing) {
@@ -121,6 +121,7 @@ class OkHttpDownloadEngine(
                     url = resolvedFormat.formatId,
                     destinationFile = finalFile,
                     transferKind = transferKind,
+                    headers = resolvedFormat.httpHeaders,
                     onState = onState,
                 )
                 onState(DownloadState.Saving(DownloadProgress(status = "Saving media file…")))
@@ -140,6 +141,7 @@ class OkHttpDownloadEngine(
                             url = resolvedFormat.formatId,
                             destinationFile = tempVideoFile,
                             transferKind = DownloadTransferKind.VIDEO,
+                            headers = resolvedFormat.httpHeaders,
                             onState = onState,
                         )
                     }
@@ -156,6 +158,7 @@ class OkHttpDownloadEngine(
                             url = requireNotNull(resolvedFormat.companionAudioFormatId),
                             destinationFile = tempAudioFile,
                             transferKind = DownloadTransferKind.AUDIO,
+                            headers = resolvedFormat.httpHeaders,
                             onState = onState,
                         )
                     }
@@ -216,9 +219,10 @@ class OkHttpDownloadEngine(
         url: String,
         destinationFile: File,
         transferKind: DownloadTransferKind,
+        headers: Map<String, String>? = null,
         onState: (DownloadState) -> Unit,
     ) {
-        val probe = probeStream(url)
+        val probe = probeStream(url, headers)
         val totalBytes = probe.totalBytes
         if (probe.supportsRange && totalBytes != null && totalBytes > CHUNK_SIZE_BYTES) {
             try {
@@ -228,6 +232,7 @@ class OkHttpDownloadEngine(
                     destinationFile = destinationFile,
                     totalBytes = totalBytes,
                     transferKind = transferKind,
+                    headers = headers,
                     onState = onState,
                 )
                 return
@@ -246,8 +251,32 @@ class OkHttpDownloadEngine(
             url = url,
             destinationFile = destinationFile,
             transferKind = transferKind,
+            headers = headers,
             onState = onState,
         )
+    }
+
+    private fun resolveHeaders(url: String, customHeaders: Map<String, String>?): Map<String, String> {
+        val headers = mutableMapOf<String, String>()
+        headers["User-Agent"] = USER_AGENT
+        headers["Accept"] = "*/*"
+        val host = runCatching { java.net.URI(url).host.orEmpty().lowercase() }.getOrDefault("")
+        when {
+            host.contains("tiktok") || host.contains("musical.ly") || host.contains("tikwm") -> {
+                headers["Referer"] = "https://www.tiktok.com/"
+            }
+            host.contains("instagram") || host.contains("cdninstagram") -> {
+                headers["Referer"] = "https://www.instagram.com/"
+            }
+            host.contains("facebook") || host.contains("fbcdn") -> {
+                headers["Referer"] = "https://www.facebook.com/"
+            }
+            host.contains("twitter") || host.contains("twimg") || host.contains("x.com") -> {
+                headers["Referer"] = "https://twitter.com/"
+            }
+        }
+        customHeaders?.let { headers.putAll(it) }
+        return headers
     }
 
     private data class StreamProbe(
@@ -255,14 +284,15 @@ class OkHttpDownloadEngine(
         val supportsRange: Boolean,
     )
 
-    private fun probeStream(url: String): StreamProbe {
+    private fun probeStream(url: String, customHeaders: Map<String, String>? = null): StreamProbe {
         return try {
-            val req = Request.Builder()
+            val reqBuilder = Request.Builder()
                 .url(url)
-                .addHeader("User-Agent", USER_AGENT)
-                .addHeader("Accept", "*/*")
                 .addHeader("Range", "bytes=0-0")
-                .build()
+            resolveHeaders(url, customHeaders).forEach { (k, v) ->
+                reqBuilder.addHeader(k, v)
+            }
+            val req = reqBuilder.build()
             client.newCall(req).execute().use { response ->
                 if (response.code == 206) {
                     val contentRange = response.header("Content-Range")
@@ -288,6 +318,7 @@ class OkHttpDownloadEngine(
         destinationFile: File,
         totalBytes: Long,
         transferKind: DownloadTransferKind,
+        headers: Map<String, String>? = null,
         onState: (DownloadState) -> Unit,
     ) {
         var downloadedBytes = 0L
@@ -314,14 +345,15 @@ class OkHttpDownloadEngine(
                     }
                     attempts++
 
-                    val chunkRequest = Request.Builder()
+                    val chunkRequestBuilder = Request.Builder()
                         .url(url)
-                        .addHeader("User-Agent", USER_AGENT)
-                        .addHeader("Accept", "*/*")
                         .addHeader("Accept-Encoding", "identity")
                         .addHeader("Range", "bytes=$currentStart-$currentEnd")
                         .addHeader("Connection", "keep-alive")
-                        .build()
+                    resolveHeaders(url, headers).forEach { (k, v) ->
+                        chunkRequestBuilder.addHeader(k, v)
+                    }
+                    val chunkRequest = chunkRequestBuilder.build()
 
                     val call = client.newCall(chunkRequest)
                     activeCalls.getOrPut(taskId, ::mutableListOf).add(call)
@@ -405,15 +437,17 @@ class OkHttpDownloadEngine(
         url: String,
         destinationFile: File,
         transferKind: DownloadTransferKind,
+        headers: Map<String, String>? = null,
         onState: (DownloadState) -> Unit,
     ) {
-        val httpRequest = Request.Builder()
+        val httpRequestBuilder = Request.Builder()
             .url(url)
-            .addHeader("User-Agent", USER_AGENT)
-            .addHeader("Accept", "*/*")
             .addHeader("Accept-Encoding", "identity")
             .addHeader("Connection", "keep-alive")
-            .build()
+        resolveHeaders(url, headers).forEach { (k, v) ->
+            httpRequestBuilder.addHeader(k, v)
+        }
+        val httpRequest = httpRequestBuilder.build()
         val call = client.newCall(httpRequest)
         activeCalls.getOrPut(taskId, ::mutableListOf).add(call)
 

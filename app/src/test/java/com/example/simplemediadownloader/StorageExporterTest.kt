@@ -238,13 +238,17 @@ class StorageExporterTest {
         var abandonedRows = 0
         var cleanupCalls = 0
 
+        var capturedTitle: String? = null
+
         override suspend fun write(
             source: File,
             requestedDisplayName: String,
             mimeType: String,
             taskId: String,
+            title: String?,
         ): DownloadOutput {
             this.taskId = taskId
+            this.capturedTitle = title
             return DownloadOutput(
                 contentUri = "content://media/external_primary/video/media/42",
                 mimeType = mimeType,

@@ -90,7 +90,6 @@ internal class DownloadsStorageExporter(
                 ?: throw FileNotFoundException(
                     "yt-dlp completed without a final file in the temporary workspace.",
                 )
-            check(source.length() > 0L) { "The processed media file is empty." }
             val displayName = MediaExportPolicy.sanitizeDisplayName(
                 source.name,
                 request.format.extension,
@@ -101,6 +100,7 @@ internal class DownloadsStorageExporter(
                 requestedDisplayName = displayName,
                 mimeType = mimeType,
                 taskId = request.id,
+                title = request.title,
             )
         }
     }
@@ -152,6 +152,7 @@ internal interface MediaStoreWriter {
         requestedDisplayName: String,
         mimeType: String,
         taskId: String,
+        title: String? = null,
     ): DownloadOutput
 
     suspend fun exists(contentUri: String): Boolean
@@ -170,6 +171,7 @@ internal class ContentResolverMediaStoreWriter(
         requestedDisplayName: String,
         mimeType: String,
         taskId: String,
+        title: String?,
     ): DownloadOutput {
         val target = MediaExportPolicy.targetFor(mimeType)
         val reservationKey = "${target.collection}|${target.relativePath.lowercase(Locale.US)}"
@@ -205,11 +207,12 @@ internal class ContentResolverMediaStoreWriter(
                 }
             } ?: error("MediaStore could not open the output stream.")
 
+            val cleanTitle = title?.ifBlank { null } ?: displayName.substringBeforeLast('.')
             val published = resolver.update(
                 contentUri,
                 ContentValues().apply {
                     put(MediaStore.MediaColumns.IS_PENDING, 0)
-                    put(MediaStore.MediaColumns.TITLE, displayName.substringBeforeLast('.'))
+                    put(MediaStore.MediaColumns.TITLE, cleanTitle)
                 },
                 null,
                 null,
