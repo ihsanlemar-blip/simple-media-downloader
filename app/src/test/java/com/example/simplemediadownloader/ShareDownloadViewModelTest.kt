@@ -210,9 +210,18 @@ class ShareDownloadViewModelTest {
             MutableStateFlow(DefaultDownloadChoice.VIDEO_720)
         override val themeMode: StateFlow<AppThemeMode> =
             MutableStateFlow(AppThemeMode.DYNAMIC)
+        override val wifiOnly: StateFlow<Boolean> =
+            MutableStateFlow(false)
+        override val maxConcurrentDownloads: StateFlow<Int> =
+            MutableStateFlow(3)
+        override val vaultViewMode: StateFlow<String> =
+            MutableStateFlow("grid")
 
         override suspend fun setDefaultChoice(choice: DefaultDownloadChoice) = Unit
         override suspend fun setThemeMode(mode: AppThemeMode) = Unit
+        override suspend fun setWifiOnly(enabled: Boolean) = Unit
+        override suspend fun setMaxConcurrentDownloads(limit: Int) = Unit
+        override suspend fun setVaultViewMode(mode: String) = Unit
     }
 
     private class FakeShareGateway : ShareDownloadGateway {

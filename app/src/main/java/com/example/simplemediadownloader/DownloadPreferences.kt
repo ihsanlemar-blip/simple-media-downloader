@@ -56,6 +56,12 @@ interface DownloadPreferenceStore {
     suspend fun setDefaultChoice(choice: DefaultDownloadChoice)
     val themeMode: StateFlow<AppThemeMode>
     suspend fun setThemeMode(mode: AppThemeMode)
+    val wifiOnly: StateFlow<Boolean>
+    suspend fun setWifiOnly(enabled: Boolean)
+    val maxConcurrentDownloads: StateFlow<Int>
+    suspend fun setMaxConcurrentDownloads(limit: Int)
+    val vaultViewMode: StateFlow<String>
+    suspend fun setVaultViewMode(mode: String)
 }
 
 class SharedPreferencesDownloadPreferenceStore(
@@ -72,6 +78,21 @@ class SharedPreferencesDownloadPreferenceStore(
         AppThemeMode.fromStored(preferences.getString(KEY_THEME_MODE, null)),
     )
     override val themeMode: StateFlow<AppThemeMode> = _themeMode.asStateFlow()
+
+    private val _wifiOnly = MutableStateFlow(
+        preferences.getBoolean(KEY_WIFI_ONLY, false),
+    )
+    override val wifiOnly: StateFlow<Boolean> = _wifiOnly.asStateFlow()
+
+    private val _maxConcurrentDownloads = MutableStateFlow(
+        preferences.getInt(KEY_MAX_CONCURRENT, 3),
+    )
+    override val maxConcurrentDownloads: StateFlow<Int> = _maxConcurrentDownloads.asStateFlow()
+
+    private val _vaultViewMode = MutableStateFlow(
+        preferences.getString(KEY_VAULT_VIEW_MODE, "grid") ?: "grid",
+    )
+    override val vaultViewMode: StateFlow<String> = _vaultViewMode.asStateFlow()
 
     @SuppressLint("UseKtx") // commit() reports persistence failures; edit(commit = true) does not.
     override suspend fun setDefaultChoice(choice: DefaultDownloadChoice) {
@@ -97,10 +118,50 @@ class SharedPreferencesDownloadPreferenceStore(
         }
     }
 
+    @SuppressLint("UseKtx")
+    override suspend fun setWifiOnly(enabled: Boolean) {
+        withContext(dispatchers.io) {
+            check(
+                preferences.edit()
+                    .putBoolean(KEY_WIFI_ONLY, enabled)
+                    .commit(),
+            ) { "Could not save wifi only preference." }
+            _wifiOnly.value = enabled
+        }
+    }
+
+    @SuppressLint("UseKtx")
+    override suspend fun setMaxConcurrentDownloads(limit: Int) {
+        withContext(dispatchers.io) {
+            val valid = limit.coerceIn(1, 5)
+            check(
+                preferences.edit()
+                    .putInt(KEY_MAX_CONCURRENT, valid)
+                    .commit(),
+            ) { "Could not save concurrency preference." }
+            _maxConcurrentDownloads.value = valid
+        }
+    }
+
+    @SuppressLint("UseKtx")
+    override suspend fun setVaultViewMode(mode: String) {
+        withContext(dispatchers.io) {
+            check(
+                preferences.edit()
+                    .putString(KEY_VAULT_VIEW_MODE, mode)
+                    .commit(),
+            ) { "Could not save vault view mode preference." }
+            _vaultViewMode.value = mode
+        }
+    }
+
     companion object {
         internal const val PREFERENCES_NAME = "download_preferences"
         private const val KEY_DEFAULT_CHOICE = "default_download_choice"
         private const val KEY_THEME_MODE = "app_theme_mode"
+        private const val KEY_WIFI_ONLY = "pref_wifi_only"
+        private const val KEY_MAX_CONCURRENT = "pref_max_concurrent"
+        private const val KEY_VAULT_VIEW_MODE = "pref_vault_view_mode"
     }
 }
 

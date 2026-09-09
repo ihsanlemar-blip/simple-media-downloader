@@ -94,6 +94,8 @@ dependencies {
     val media3Version = "1.5.1"
     implementation("androidx.media3:media3-transformer:$media3Version")
     implementation("androidx.media3:media3-muxer:$media3Version")
+    implementation("androidx.media3:media3-exoplayer:$media3Version")
+    implementation("androidx.media3:media3-ui:$media3Version")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("androidx.room:room-testing:$roomVersion")

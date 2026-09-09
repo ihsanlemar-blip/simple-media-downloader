@@ -13,7 +13,26 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
+enum class NavigationTab(val label: String) {
+    GATEWAY("Gateway"),
+    TRANSFERS("Transfers"),
+    VAULT("Vault"),
+    SETTINGS("Settings"),
+}
+
+enum class VaultViewMode(val label: String) {
+    GRID("Grid"),
+    LIST("List"),
+}
+
+enum class VaultMediaType(val label: String) {
+    ALL("All"),
+    VIDEOS("Videos"),
+    AUDIO("Audio"),
+}
+
 data class MainUiState(
+    val currentTab: NavigationTab = NavigationTab.GATEWAY,
     val url: String = "",
     val backend: BackendState = BackendState(),
     val isDiscoveringFormats: Boolean = false,
@@ -26,6 +45,13 @@ data class MainUiState(
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
     val historySearchQuery: String = "",
     val historyPlatformFilter: String? = null,
+    val vaultViewMode: VaultViewMode = VaultViewMode.GRID,
+    val vaultMediaType: VaultMediaType = VaultMediaType.ALL,
+    val selectedVaultTaskIds: Set<String> = emptySet(),
+    val isMultiSelectActive: Boolean = false,
+    val previewMedia: DownloadOutput? = null,
+    val wifiOnly: Boolean = false,
+    val maxConcurrentDownloads: Int = 3,
 ) {
     val activeTaskCount: Int get() = tasks.count(DownloadTask::isActive)
 
@@ -33,7 +59,25 @@ data class MainUiState(
         get() = tasks.filter(DownloadTask::isActive)
 
     val filteredHistoryTasks: List<DownloadTask>
+        get() = filteredVaultTasks
+
+    val filteredVaultTasks: List<DownloadTask>
         get() = tasks.filter { !it.isActive }
+            .filter { task ->
+                when (vaultMediaType) {
+                    VaultMediaType.ALL -> true
+                    VaultMediaType.VIDEOS -> {
+                        val isVideoMode = task.format.mode == DownloadMode.VIDEO
+                        val isVideoState = (task.state as? DownloadState.Completed)?.output?.mimeType?.startsWith("video") == true
+                        isVideoMode || isVideoState
+                    }
+                    VaultMediaType.AUDIO -> {
+                        val isAudioMode = task.format.mode != DownloadMode.VIDEO
+                        val isAudioState = (task.state as? DownloadState.Completed)?.output?.mimeType?.startsWith("audio") == true
+                        isAudioMode || isAudioState
+                    }
+                }
+            }
             .filter { task ->
                 if (historySearchQuery.isBlank()) true
                 else task.title.contains(historySearchQuery, ignoreCase = true) ||
@@ -43,6 +87,12 @@ data class MainUiState(
                 if (historyPlatformFilter.isNullOrBlank()) true
                 else task.platform.equals(historyPlatformFilter, ignoreCase = true)
             }
+
+    val totalActiveSpeedBytesPerSec: Long
+        get() = activeTasks.mapNotNull { it.progress.speedBytesPerSecond }.sum()
+
+    val totalDownloadedBytesInSession: Long
+        get() = tasks.sumOf { it.progress.downloadedBytes ?: 0L }
 }
 
 class MainViewModel @JvmOverloads constructor(
@@ -87,6 +137,86 @@ class MainViewModel @JvmOverloads constructor(
             preferenceStore.themeMode.collect { mode ->
                 _uiState.update { it.copy(themeMode = mode) }
             }
+        }
+        viewModelScope.launch {
+            preferenceStore.wifiOnly.collect { enabled ->
+                _uiState.update { it.copy(wifiOnly = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            preferenceStore.maxConcurrentDownloads.collect { limit ->
+                _uiState.update { it.copy(maxConcurrentDownloads = limit) }
+            }
+        }
+        viewModelScope.launch {
+            preferenceStore.vaultViewMode.collect { modeStr ->
+                val mode = if (modeStr == "list") VaultViewMode.LIST else VaultViewMode.GRID
+                _uiState.update { it.copy(vaultViewMode = mode) }
+            }
+        }
+    }
+
+    fun setTab(tab: NavigationTab) {
+        _uiState.update { it.copy(currentTab = tab) }
+    }
+
+    fun setVaultViewMode(mode: VaultViewMode) {
+        _uiState.update { it.copy(vaultViewMode = mode) }
+        viewModelScope.launch {
+            preferenceStore.setVaultViewMode(if (mode == VaultViewMode.GRID) "grid" else "list")
+        }
+    }
+
+    fun setVaultMediaType(type: VaultMediaType) {
+        _uiState.update { it.copy(vaultMediaType = type) }
+    }
+
+    fun toggleVaultTaskSelection(id: String) {
+        _uiState.update {
+            val current = it.selectedVaultTaskIds
+            val updated = if (id in current) current - id else current + id
+            it.copy(
+                selectedVaultTaskIds = updated,
+                isMultiSelectActive = updated.isNotEmpty(),
+            )
+        }
+    }
+
+    fun selectAllVaultTasks() {
+        _uiState.update {
+            val allIds = it.filteredVaultTasks.map { t -> t.id }.toSet()
+            it.copy(selectedVaultTaskIds = allIds, isMultiSelectActive = allIds.isNotEmpty())
+        }
+    }
+
+    fun clearVaultSelection() {
+        _uiState.update { it.copy(selectedVaultTaskIds = emptySet(), isMultiSelectActive = false) }
+    }
+
+    fun deleteSelectedVaultTasks() {
+        val ids = _uiState.value.selectedVaultTaskIds.toList()
+        clearVaultSelection()
+        ids.forEach { deleteMediaAndHistory(it) }
+        showMessage("Deleted ${ids.size} items from vault.")
+    }
+
+    fun setPreviewMedia(output: DownloadOutput?) {
+        _uiState.update { it.copy(previewMedia = output) }
+    }
+
+    fun setWifiOnly(enabled: Boolean) {
+        viewModelScope.launch { preferenceStore.setWifiOnly(enabled) }
+    }
+
+    fun setMaxConcurrentDownloads(limit: Int) {
+        viewModelScope.launch { preferenceStore.setMaxConcurrentDownloads(limit) }
+    }
+
+    fun clearAppCache() {
+        viewModelScope.launch(dispatchers.io) {
+            val cacheDir = getApplication<Application>().cacheDir
+            val count = cacheDir.listFiles()?.count { it.deleteRecursively() } ?: 0
+            showMessage("Cleaned $count temporary cache files.")
         }
     }
 

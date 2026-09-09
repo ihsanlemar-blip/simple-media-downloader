@@ -145,6 +145,44 @@ class DownloadPreferencesTest {
         assertEquals(AppThemeMode.AMOLED_DARK, recreatedStore.themeMode.value)
     }
 
+    @Test
+    fun `wifi only preference survives store recreation`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dispatchers = AppDispatchers(io = Dispatchers.Unconfined)
+        val firstStore = SharedPreferencesDownloadPreferenceStore(context, dispatchers)
+
+        firstStore.setWifiOnly(true)
+
+        val recreatedStore = SharedPreferencesDownloadPreferenceStore(context, dispatchers)
+        org.junit.Assert.assertTrue(recreatedStore.wifiOnly.value)
+    }
+
+    @Test
+    fun `max concurrent downloads preference survives store recreation and clamps bounds`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dispatchers = AppDispatchers(io = Dispatchers.Unconfined)
+        val firstStore = SharedPreferencesDownloadPreferenceStore(context, dispatchers)
+
+        firstStore.setMaxConcurrentDownloads(5)
+        val recreatedStore = SharedPreferencesDownloadPreferenceStore(context, dispatchers)
+        assertEquals(5, recreatedStore.maxConcurrentDownloads.value)
+
+        firstStore.setMaxConcurrentDownloads(10) // should clamp to 5
+        assertEquals(5, firstStore.maxConcurrentDownloads.value)
+    }
+
+    @Test
+    fun `vault view mode preference survives store recreation`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dispatchers = AppDispatchers(io = Dispatchers.Unconfined)
+        val firstStore = SharedPreferencesDownloadPreferenceStore(context, dispatchers)
+
+        firstStore.setVaultViewMode("list")
+
+        val recreatedStore = SharedPreferencesDownloadPreferenceStore(context, dispatchers)
+        assertEquals("list", recreatedStore.vaultViewMode.value)
+    }
+
     private fun video(key: String, height: Int, companionAudio: String? = null) = AvailableFormat(
         key = key,
         mode = DownloadMode.VIDEO,
