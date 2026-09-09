@@ -35,9 +35,27 @@ enum class DefaultDownloadChoice(
     }
 }
 
+enum class AppThemeMode(
+    val label: String,
+    val description: String,
+) {
+    SYSTEM("System Default", "Follow OS light or dark theme"),
+    DYNAMIC("Dynamic Monet", "Material You accent matching your wallpaper"),
+    AMOLED_DARK("Pure AMOLED Black", "Deep #000000 contrast with OLED power saving"),
+    LIGHT("Clean Light", "Crisp white surface with refined contrast"),
+    ;
+
+    companion object {
+        fun fromStored(value: String?): AppThemeMode =
+            entries.firstOrNull { it.name == value } ?: SYSTEM
+    }
+}
+
 interface DownloadPreferenceStore {
     val defaultChoice: StateFlow<DefaultDownloadChoice>
     suspend fun setDefaultChoice(choice: DefaultDownloadChoice)
+    val themeMode: StateFlow<AppThemeMode>
+    suspend fun setThemeMode(mode: AppThemeMode)
 }
 
 class SharedPreferencesDownloadPreferenceStore(
@@ -49,6 +67,11 @@ class SharedPreferencesDownloadPreferenceStore(
         DefaultDownloadChoice.fromStored(preferences.getString(KEY_DEFAULT_CHOICE, null)),
     )
     override val defaultChoice: StateFlow<DefaultDownloadChoice> = _defaultChoice.asStateFlow()
+
+    private val _themeMode = MutableStateFlow(
+        AppThemeMode.fromStored(preferences.getString(KEY_THEME_MODE, null)),
+    )
+    override val themeMode: StateFlow<AppThemeMode> = _themeMode.asStateFlow()
 
     @SuppressLint("UseKtx") // commit() reports persistence failures; edit(commit = true) does not.
     override suspend fun setDefaultChoice(choice: DefaultDownloadChoice) {
@@ -62,9 +85,22 @@ class SharedPreferencesDownloadPreferenceStore(
         }
     }
 
+    @SuppressLint("UseKtx")
+    override suspend fun setThemeMode(mode: AppThemeMode) {
+        withContext(dispatchers.io) {
+            check(
+                preferences.edit()
+                    .putString(KEY_THEME_MODE, mode.name)
+                    .commit(),
+            ) { "Could not save the theme mode preference." }
+            _themeMode.value = mode
+        }
+    }
+
     companion object {
         internal const val PREFERENCES_NAME = "download_preferences"
         private const val KEY_DEFAULT_CHOICE = "default_download_choice"
+        private const val KEY_THEME_MODE = "app_theme_mode"
     }
 }
 

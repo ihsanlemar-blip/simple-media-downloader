@@ -208,8 +208,11 @@ class ShareDownloadViewModelTest {
     private class FakePreferenceStore : DownloadPreferenceStore {
         override val defaultChoice: StateFlow<DefaultDownloadChoice> =
             MutableStateFlow(DefaultDownloadChoice.VIDEO_720)
+        override val themeMode: StateFlow<AppThemeMode> =
+            MutableStateFlow(AppThemeMode.DYNAMIC)
 
         override suspend fun setDefaultChoice(choice: DefaultDownloadChoice) = Unit
+        override suspend fun setThemeMode(mode: AppThemeMode) = Unit
     }
 
     private class FakeShareGateway : ShareDownloadGateway {

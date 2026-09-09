@@ -23,8 +23,26 @@ data class MainUiState(
     val message: String? = null,
     val isUpdatingBackend: Boolean = false,
     val defaultDownloadChoice: DefaultDownloadChoice = DefaultDownloadChoice.BEST_VIDEO,
+    val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
+    val historySearchQuery: String = "",
+    val historyPlatformFilter: String? = null,
 ) {
     val activeTaskCount: Int get() = tasks.count(DownloadTask::isActive)
+
+    val activeTasks: List<DownloadTask>
+        get() = tasks.filter(DownloadTask::isActive)
+
+    val filteredHistoryTasks: List<DownloadTask>
+        get() = tasks.filter { !it.isActive }
+            .filter { task ->
+                if (historySearchQuery.isBlank()) true
+                else task.title.contains(historySearchQuery, ignoreCase = true) ||
+                    task.url.contains(historySearchQuery, ignoreCase = true)
+            }
+            .filter { task ->
+                if (historyPlatformFilter.isNullOrBlank()) true
+                else task.platform.equals(historyPlatformFilter, ignoreCase = true)
+            }
 }
 
 class MainViewModel @JvmOverloads constructor(
@@ -65,6 +83,25 @@ class MainViewModel @JvmOverloads constructor(
                 _uiState.update { it.copy(defaultDownloadChoice = choice) }
             }
         }
+        viewModelScope.launch {
+            preferenceStore.themeMode.collect { mode ->
+                _uiState.update { it.copy(themeMode = mode) }
+            }
+        }
+    }
+
+    fun setThemeMode(mode: AppThemeMode) {
+        viewModelScope.launch {
+            preferenceStore.setThemeMode(mode)
+        }
+    }
+
+    fun setHistorySearchQuery(query: String) {
+        _uiState.update { it.copy(historySearchQuery = query) }
+    }
+
+    fun setHistoryPlatformFilter(platform: String?) {
+        _uiState.update { it.copy(historyPlatformFilter = platform) }
     }
 
     fun setUrl(value: String) {

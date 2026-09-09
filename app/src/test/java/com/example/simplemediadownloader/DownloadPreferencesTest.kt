@@ -124,6 +124,27 @@ class DownloadPreferencesTest {
         assertEquals(DefaultDownloadChoice.VIDEO_720, recreatedStore.defaultChoice.value)
     }
 
+    @Test
+    fun `theme mode values map safely and unknown values fallback to system`() {
+        AppThemeMode.entries.forEach { mode ->
+            assertEquals(mode, AppThemeMode.fromStored(mode.name))
+        }
+        assertEquals(AppThemeMode.SYSTEM, AppThemeMode.fromStored(null))
+        assertEquals(AppThemeMode.SYSTEM, AppThemeMode.fromStored("invalid_theme"))
+    }
+
+    @Test
+    fun `theme mode survives store recreation`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dispatchers = AppDispatchers(io = Dispatchers.Unconfined)
+        val firstStore = SharedPreferencesDownloadPreferenceStore(context, dispatchers)
+
+        firstStore.setThemeMode(AppThemeMode.AMOLED_DARK)
+
+        val recreatedStore = SharedPreferencesDownloadPreferenceStore(context, dispatchers)
+        assertEquals(AppThemeMode.AMOLED_DARK, recreatedStore.themeMode.value)
+    }
+
     private fun video(key: String, height: Int, companionAudio: String? = null) = AvailableFormat(
         key = key,
         mode = DownloadMode.VIDEO,
