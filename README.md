@@ -1,6 +1,12 @@
 # Simple Media Downloader
 
-Simple Media Downloader is a Kotlin and Jetpack Compose Android application for saving publicly accessible media that the user is authorized to download. Processing stays on the device through the embedded youtubedl-android stack: yt-dlp, Python, QuickJS, and FFmpeg. It does not use Cobalt or another remote media-processing backend.
+[![Download Universal APK](https://img.shields.io/badge/Download-Universal%20APK-brightgreen?style=for-the-badge&logo=android)](https://github.com/ihsanlemar-blip/simple-media-downloader/releases/download/v2.5.0/SimpleMediaDownloader-v2.5.0-universal.apk)
+[![Latest Release](https://img.shields.io/github/v/release/ihsanlemar-blip/simple-media-downloader?style=for-the-badge)](https://github.com/ihsanlemar-blip/simple-media-downloader/releases/latest)
+
+> 🚀 **Direct Download**: Grab the latest ready-to-install signed universal APK from GitHub Releases:
+> **[SimpleMediaDownloader-v2.5.0-universal.apk](https://github.com/ihsanlemar-blip/simple-media-downloader/releases/download/v2.5.0/SimpleMediaDownloader-v2.5.0-universal.apk)** *(Supports `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`)*
+
+Simple Media Downloader is a flagship Kotlin and Jetpack Compose Android application for saving publicly accessible media from TikTok, Instagram Reels, Facebook, YouTube, X (Twitter), and Reddit with full metadata and original title preservation. Processing stays on the device through the embedded youtubedl-android stack: yt-dlp, Python, QuickJS, and FFmpeg. It does not use Cobalt or another remote media-processing backend.
 
 The app does not bypass DRM, private accounts, authentication, paywalls, or website policy. Source support changes as websites and the bundled extractor change.
 
