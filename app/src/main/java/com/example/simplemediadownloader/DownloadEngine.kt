@@ -254,9 +254,13 @@ class OkHttpDownloadEngine(
         headers: Map<String, String>? = null,
         onState: (DownloadState) -> Unit,
     ) {
+        val host = runCatching { java.net.URI(url).host.orEmpty().lowercase() }.getOrDefault("")
+        val isStreamingCdn = host.contains("tiktok") || host.contains("musical.ly") ||
+            host.contains("cdninstagram") || host.contains("fbcdn")
+
         val probe = probeStream(url, headers)
         val totalBytes = probe.totalBytes
-        if (probe.supportsRange && totalBytes != null && totalBytes > CHUNK_SIZE_BYTES) {
+        if (!isStreamingCdn && probe.supportsRange && totalBytes != null && totalBytes > CHUNK_SIZE_BYTES) {
             try {
                 downloadStreamChunked(
                     taskId = taskId,
@@ -327,9 +331,9 @@ class OkHttpDownloadEngine(
         return try {
             val reqBuilder = Request.Builder()
                 .url(url)
-                .addHeader("Range", "bytes=0-0")
+                .header("Range", "bytes=0-0")
             resolveHeaders(url, customHeaders).forEach { (k, v) ->
-                reqBuilder.addHeader(k, v)
+                reqBuilder.header(k, v)
             }
             val req = reqBuilder.build()
             httpClient.newCall(req).execute().use { response ->
@@ -386,11 +390,11 @@ class OkHttpDownloadEngine(
 
                     val chunkRequestBuilder = Request.Builder()
                         .url(url)
-                        .addHeader("Accept-Encoding", "identity")
-                        .addHeader("Range", "bytes=$currentStart-$currentEnd")
-                        .addHeader("Connection", "keep-alive")
+                        .header("Accept-Encoding", "identity")
+                        .header("Range", "bytes=$currentStart-$currentEnd")
+                        .header("Connection", "keep-alive")
                     resolveHeaders(url, headers).forEach { (k, v) ->
-                        chunkRequestBuilder.addHeader(k, v)
+                        chunkRequestBuilder.header(k, v)
                     }
                     val chunkRequest = chunkRequestBuilder.build()
 
@@ -481,10 +485,10 @@ class OkHttpDownloadEngine(
     ) {
         val httpRequestBuilder = Request.Builder()
             .url(url)
-            .addHeader("Accept-Encoding", "identity")
-            .addHeader("Connection", "keep-alive")
+            .header("Accept-Encoding", "identity")
+            .header("Connection", "keep-alive")
         resolveHeaders(url, headers).forEach { (k, v) ->
-            httpRequestBuilder.addHeader(k, v)
+            httpRequestBuilder.header(k, v)
         }
         val httpRequest = httpRequestBuilder.build()
         val call = httpClient.newCall(httpRequest)

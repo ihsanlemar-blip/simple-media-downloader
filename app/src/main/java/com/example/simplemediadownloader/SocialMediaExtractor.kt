@@ -85,10 +85,10 @@ object SocialMediaExtractor {
             .followSslRedirects(true)
             .build()
 
-        val ua = if (initialUrl.contains("facebook.com") || initialUrl.contains("fb.watch")) {
-            CRAWLER_USER_AGENT
-        } else {
-            USER_AGENT
+        val ua = when {
+            initialUrl.contains("facebook.com") || initialUrl.contains("fb.watch") -> CRAWLER_USER_AGENT
+            initialUrl.contains("tiktok.com") -> MOBILE_USER_AGENT
+            else -> USER_AGENT
         }
 
         val request = Request.Builder()
@@ -249,9 +249,9 @@ object SocialMediaExtractor {
 
             val request = Request.Builder()
                 .url(url)
-                .addHeader("User-Agent", MOBILE_USER_AGENT)
-                .addHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .addHeader("Accept-Language", "en-US,en;q=0.9")
+                .header("User-Agent", MOBILE_USER_AGENT)
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "en-US,en;q=0.9")
                 .build()
 
             val html: String
@@ -261,6 +261,7 @@ object SocialMediaExtractor {
                 finalUrl = response.request.url.toString()
                 html = response.body?.string().orEmpty()
             }
+            if (html.isBlank()) return null
 
             val cookieHeader = cookieJar.getFormattedCookieHeader()
             val headers = mutableMapOf(
@@ -271,14 +272,17 @@ object SocialMediaExtractor {
                 headers["Cookie"] = cookieHeader
             }
 
-            // Parse SSR data from __UNIVERSAL_DATA_FOR_REHYDRATION__
             var directVideoUrl: String? = null
             var directAudioUrl: String? = null
             var itemTitle: String? = null
             var itemAuthor: String? = null
             var itemCover: String? = null
+            var videoHeight: Int? = null
 
-            val rehydrationJson = extractPattern(html, """id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)</script>""")
+            val rehydrationJson = extractJsonFromHtmlTag(html, "id=\"__UNIVERSAL_DATA_FOR_REHYDRATION__\"")
+                ?: extractJsonFromHtmlTag(html, "id=\"SIGI_STATE\"")
+                ?: extractJsonFromHtmlTag(html, "id=\"sigi-persisted-data\"")
+
             if (!rehydrationJson.isNullOrBlank()) {
                 try {
                     val rootJson = JSONObject(rehydrationJson)
@@ -295,13 +299,36 @@ object SocialMediaExtractor {
                                 directVideoUrl = videoObj?.optString("playAddr")?.takeIf { it.isNotBlank() }
                                     ?: videoObj?.optString("downloadAddr")?.takeIf { it.isNotBlank() }
                                 itemCover = videoObj?.optString("cover")?.takeIf { it.isNotBlank() }
+                                    ?: videoObj?.optString("originCover")?.takeIf { it.isNotBlank() }
                                 itemTitle = itemStruct.optString("desc").takeIf { it.isNotBlank() }
                                 val authorObj = itemStruct.optJSONObject("author")
                                 itemAuthor = authorObj?.optString("nickname")?.takeIf { it.isNotBlank() }
                                     ?: authorObj?.optString("uniqueId")?.takeIf { it.isNotBlank() }
                                 val musicObj = itemStruct.optJSONObject("music")
                                 directAudioUrl = musicObj?.optString("playUrl")?.takeIf { it.isNotBlank() }
+                                val h = videoObj?.optInt("height", 0) ?: 0
+                                if (h > 0) videoHeight = h
                                 break
+                            }
+                        }
+                    }
+                    if (directVideoUrl.isNullOrBlank()) {
+                        val itemModule = rootJson.optJSONObject("ItemModule")
+                        if (itemModule != null) {
+                            val keys = itemModule.keys()
+                            while (keys.hasNext()) {
+                                val item = itemModule.optJSONObject(keys.next()) ?: continue
+                                val videoObj = item.optJSONObject("video")
+                                directVideoUrl = videoObj?.optString("playAddr")?.takeIf { it.isNotBlank() }
+                                    ?: videoObj?.optString("downloadAddr")?.takeIf { it.isNotBlank() }
+                                itemCover = videoObj?.optString("cover")?.takeIf { it.isNotBlank() }
+                                itemTitle = item.optString("desc").takeIf { it.isNotBlank() }
+                                itemAuthor = item.optString("author").takeIf { it.isNotBlank() }
+                                val musicObj = item.optJSONObject("music")
+                                directAudioUrl = musicObj?.optString("playUrl")?.takeIf { it.isNotBlank() }
+                                val h = videoObj?.optInt("height", 0) ?: 0
+                                if (h > 0) videoHeight = h
+                                if (directVideoUrl != null) break
                             }
                         }
                     }
@@ -340,7 +367,7 @@ object SocialMediaExtractor {
                     mode = DownloadMode.VIDEO,
                     formatId = cleanVideoUrl,
                     extension = "mp4",
-                    height = 1080,
+                    height = videoHeight ?: 1080,
                     formatNote = "HD Video",
                     isQuickPreset = false,
                     httpHeaders = headers,
@@ -415,23 +442,189 @@ object SocialMediaExtractor {
     private fun extractInstagram(client: OkHttpClient, url: String): FormatDiscoveryResult {
         val shortcode = extractInstagramShortcode(url)
 
-        // Tier 1: Public captioned embed endpoint (Bypasses Instagram login blocks completely)
+        // Tier 1: Modern SSR RelayPrefetchedStreamCache web extractor (Fastest, full HD, no auth)
         if (shortcode != null) {
+            val relayCatalog = tryInstagramRelayCache(client, url, shortcode)
+            if (relayCatalog != null && relayCatalog.videoFormats.isNotEmpty()) {
+                return FormatDiscoveryResult.Success(relayCatalog)
+            }
+
+            // Tier 2: Public captioned embed endpoint
             val embedCatalog = tryInstagramEmbed(client, url, shortcode)
             if (embedCatalog != null && embedCatalog.videoFormats.isNotEmpty()) {
                 return FormatDiscoveryResult.Success(embedCatalog)
             }
         }
 
-        // Tier 2: Public crawler emulation (WhatsApp / Facebook bot impersonation)
+        // Tier 3: Public crawler emulation (WhatsApp / Facebook bot impersonation)
         val crawlerCatalog = tryInstagramCrawler(client, url)
         if (crawlerCatalog != null && crawlerCatalog.videoFormats.isNotEmpty()) {
             return FormatDiscoveryResult.Success(crawlerCatalog)
         }
 
         return FormatDiscoveryResult.Failure(
-            "Could not extract video from this Instagram link. The post may be private or restricted.",
+            "Could not extract video from this Instagram link. The post may be private, expired, or restricted.",
         )
+    }
+
+    private fun tryInstagramRelayCache(client: OkHttpClient, url: String, shortcode: String): MediaFormatCatalog? {
+        return try {
+            val pageUrl = "https://www.instagram.com/p/$shortcode/"
+            val request = Request.Builder()
+                .url(pageUrl)
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Sec-Fetch-Mode", "navigate")
+                .build()
+
+            val html = client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return null
+                response.body?.string().orEmpty()
+            }
+            if (html.isBlank()) return null
+
+            val marker = "RelayPrefetchedStreamCache"
+            var markerIdx = html.indexOf(marker)
+            var targetProduct: JSONObject? = null
+
+            while (markerIdx != -1) {
+                val scriptStart = html.lastIndexOf("<script", markerIdx)
+                val contentStart = if (scriptStart != -1) html.indexOf('>', scriptStart) + 1 else -1
+                val scriptEnd = html.indexOf("</script>", markerIdx)
+                if (contentStart != -1 && scriptEnd != -1 && contentStart < scriptEnd) {
+                    val jsonStr = html.substring(contentStart, scriptEnd).trim()
+                    try {
+                        val root = JSONObject(jsonStr)
+                        val requireArr = root.optJSONArray("require")
+                        if (requireArr != null) {
+                            for (i in 0 until requireArr.length()) {
+                                val subArr = requireArr.optJSONArray(i) ?: continue
+                                for (j in 0 until subArr.length()) {
+                                    val itemArr = subArr.optJSONArray(j) ?: continue
+                                    for (k in 0 until itemArr.length()) {
+                                        val itemObj = itemArr.optJSONObject(k) ?: continue
+                                        val bbox = itemObj.optJSONObject("__bbox") ?: continue
+                                        val innerRequire = bbox.optJSONArray("require") ?: continue
+                                        for (r in 0 until innerRequire.length()) {
+                                            val rCall = innerRequire.optJSONArray(r) ?: continue
+                                            if (rCall.optString(0) == "RelayPrefetchedStreamCache") {
+                                                val args = rCall.optJSONArray(3) ?: continue
+                                                for (a in 0 until args.length()) {
+                                                    val argObj = args.optJSONObject(a) ?: continue
+                                                    val argBbox = argObj.optJSONObject("__bbox") ?: continue
+                                                    val result = argBbox.optJSONObject("result") ?: continue
+                                                    val data = result.optJSONObject("data") ?: continue
+                                                    val polarisMedia = data.optJSONObject("xig_polaris_media") ?: continue
+                                                    val product = polarisMedia.optJSONObject("if_not_gated_logged_out")
+                                                    if (product != null && product.optJSONArray("video_versions") != null) {
+                                                        targetProduct = product
+                                                        break
+                                                    }
+                                                }
+                                            }
+                                            if (targetProduct != null) break
+                                        }
+                                        if (targetProduct != null) break
+                                    }
+                                    if (targetProduct != null) break
+                                }
+                                if (targetProduct != null) break
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+                if (targetProduct != null) break
+                markerIdx = html.indexOf(marker, if (scriptEnd != -1) scriptEnd else markerIdx + 1)
+            }
+
+            if (targetProduct == null) return null
+
+            val videoVersions = targetProduct.optJSONArray("video_versions") ?: return null
+            if (videoVersions.length() == 0) return null
+
+            val userObj = targetProduct.optJSONObject("user")
+            val username = userObj?.optString("username").takeIf { !it.isNullOrBlank() }
+            val fullName = userObj?.optString("full_name").takeIf { !it.isNullOrBlank() }
+            val author = fullName ?: username ?: "Instagram Creator"
+
+            val captionObj = targetProduct.optJSONObject("caption")
+            val captionText = captionObj?.optString("text").takeIf { !it.isNullOrBlank() }
+            val rawTitle = captionText
+                ?: findMetaProperty(html, "og:title")
+                ?: findMetaProperty(html, "twitter:title")
+                ?: findMetaProperty(html, "og:description")
+                ?: "Instagram Reel by $author"
+            val title = cleanTitle(rawTitle)
+
+            val headers = mapOf(
+                "User-Agent" to USER_AGENT,
+                "Referer" to "https://www.instagram.com/",
+            )
+
+            val videoFormats = mutableListOf<AvailableFormat>()
+            var bestUrl: String? = null
+
+            for (i in 0 until videoVersions.length()) {
+                val vObj = videoVersions.optJSONObject(i) ?: continue
+                val rawUrl = vObj.optString("url")
+                if (rawUrl.isBlank()) continue
+                val cleanUrl = unescapeJsonUrl(rawUrl)
+                if (bestUrl == null) bestUrl = cleanUrl
+
+                val width = vObj.optInt("width", 0).takeIf { it > 0 }
+                val height = vObj.optInt("height", 0).takeIf { it > 0 }
+                val note = when {
+                    height != null && height >= 1080 -> "1080p HD"
+                    height != null && height >= 720 -> "720p HD"
+                    height != null -> "${height}p"
+                    i == 0 -> "HD Quality"
+                    else -> "Standard Quality"
+                }
+
+                videoFormats.add(
+                    AvailableFormat(
+                        key = "ig-relay-video-$i",
+                        mode = DownloadMode.VIDEO,
+                        formatId = cleanUrl,
+                        extension = "mp4",
+                        width = width ?: 0,
+                        height = height ?: 1080,
+                        formatNote = note,
+                        httpHeaders = headers,
+                    )
+                )
+            }
+
+            if (videoFormats.isEmpty() || bestUrl == null) return null
+
+            val audioFormats = listOf(
+                AvailableFormat(
+                    key = "ig-relay-audio",
+                    mode = DownloadMode.AUDIO_ORIGINAL,
+                    formatId = bestUrl,
+                    extension = "mp4",
+                    formatNote = "Original Audio",
+                    httpHeaders = headers,
+                )
+            )
+
+            val images = targetProduct.optJSONObject("image_versions2")?.optJSONArray("candidates")
+            val thumbUrl = images?.optJSONObject(0)?.optString("url")
+                ?: findMetaProperty(html, "og:image")
+                ?: findMetaProperty(html, "twitter:image")
+
+            MediaFormatCatalog(
+                sourceUrl = url,
+                title = title,
+                videoFormats = videoFormats,
+                audioFormats = audioFormats,
+                author = author,
+                thumbnailUrl = thumbUrl?.let { unescapeJsonUrl(it) },
+            )
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun extractInstagramShortcode(url: String): String? {
@@ -1372,6 +1565,16 @@ object SocialMediaExtractor {
         val pattern = Pattern.compile(regex)
         val matcher = pattern.matcher(html)
         return if (matcher.find()) matcher.group(1) else null
+    }
+
+    private fun extractJsonFromHtmlTag(html: String, tagIdentifier: String): String? {
+        val idx = html.indexOf(tagIdentifier)
+        if (idx == -1) return null
+        val tagEnd = html.indexOf('>', idx)
+        if (tagEnd == -1) return null
+        val scriptEnd = html.indexOf("</script>", tagEnd)
+        if (scriptEnd == -1) return null
+        return html.substring(tagEnd + 1, scriptEnd).trim()
     }
 
     private fun unescapeJsonUrl(url: String): String {
