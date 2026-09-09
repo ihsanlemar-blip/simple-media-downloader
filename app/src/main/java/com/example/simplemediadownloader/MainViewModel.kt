@@ -139,7 +139,10 @@ class MainViewModel @JvmOverloads constructor(
             showQuickFormatsAndDiscover(url)
             return
         }
-        enqueueDownload(url, format, formatTaskTitle(format))
+        val mediaTitle = exactCatalog?.title
+            ?: quickCatalog.title.takeIf { it.isNotBlank() && it != "Fast native downloads" && it != "Available formats" }
+            ?: formatTaskTitle(format)
+        enqueueDownload(url, format, mediaTitle)
     }
 
     fun chooseFormat() {
@@ -168,9 +171,12 @@ class MainViewModel @JvmOverloads constructor(
             showMessage("Formats are out of date. Choose quality again to refresh them.")
             return
         }
+        val mediaTitle = snapshot.formatCatalog?.title
+            ?.takeIf { it.isNotBlank() && it != "Fast native downloads" && it != "Available formats" }
+            ?: formatTaskTitle(format)
 
         _uiState.update { it.copy(showFormatPicker = false) }
-        enqueueDownload(url, format, formatTaskTitle(format))
+        enqueueDownload(url, format, mediaTitle)
     }
 
     private fun enqueueDownload(url: String, format: AvailableFormat, title: String) {

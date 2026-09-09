@@ -243,10 +243,13 @@ class ShareDownloadViewModel @JvmOverloads constructor(
         enqueueStarted = true
         _uiState.update { it.copy(enqueueing = true, error = null) }
         val taskId = stableTaskId()
+        val mediaTitle = state.catalog?.title
+            ?.takeIf { it.isNotBlank() && it != "Fast native downloads" && it != "Available formats" }
+            ?: shareTaskTitle(format)
         val request = DownloadRequest(
             id = taskId,
             url = url,
-            title = shareTaskTitle(format),
+            title = mediaTitle,
             format = format,
         )
         viewModelScope.launch {

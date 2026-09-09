@@ -1,4 +1,4 @@
-﻿package com.example.simplemediadownloader
+package com.example.simplemediadownloader
 
 import android.media.MediaCodec
 import android.media.MediaExtractor
@@ -56,24 +56,41 @@ object MediaStreamMuxer {
             val buffer = ByteBuffer.allocate(bufferSize)
             val bufferInfo = MediaCodec.BufferInfo()
 
-            while (true) {
-                bufferInfo.offset = 0
-                bufferInfo.size = videoExtractor.readSampleData(buffer, 0)
-                if (bufferInfo.size < 0) break
-                bufferInfo.presentationTimeUs = videoExtractor.sampleTime
-                bufferInfo.flags = videoExtractor.sampleFlags
-                muxer.writeSampleData(videoTrackIndex, buffer, bufferInfo)
-                videoExtractor.advance()
-            }
+            var videoDone = false
+            var audioDone = false
 
-            while (true) {
-                bufferInfo.offset = 0
-                bufferInfo.size = audioExtractor.readSampleData(buffer, 0)
-                if (bufferInfo.size < 0) break
-                bufferInfo.presentationTimeUs = audioExtractor.sampleTime
-                bufferInfo.flags = audioExtractor.sampleFlags
-                muxer.writeSampleData(audioTrackIndex, buffer, bufferInfo)
-                audioExtractor.advance()
+            while (!videoDone || !audioDone) {
+                val videoTime = if (!videoDone) videoExtractor.sampleTime else Long.MAX_VALUE
+                val audioTime = if (!audioDone) audioExtractor.sampleTime else Long.MAX_VALUE
+
+                if (!videoDone && videoTime < 0L) videoDone = true
+                if (!audioDone && audioTime < 0L) audioDone = true
+
+                if (videoDone && audioDone) break
+
+                if (!videoDone && (audioDone || videoTime <= audioTime)) {
+                    bufferInfo.offset = 0
+                    bufferInfo.size = videoExtractor.readSampleData(buffer, 0)
+                    if (bufferInfo.size < 0) {
+                        videoDone = true
+                    } else {
+                        bufferInfo.presentationTimeUs = videoExtractor.sampleTime
+                        bufferInfo.flags = videoExtractor.sampleFlags
+                        muxer.writeSampleData(videoTrackIndex, buffer, bufferInfo)
+                        videoExtractor.advance()
+                    }
+                } else if (!audioDone) {
+                    bufferInfo.offset = 0
+                    bufferInfo.size = audioExtractor.readSampleData(buffer, 0)
+                    if (bufferInfo.size < 0) {
+                        audioDone = true
+                    } else {
+                        bufferInfo.presentationTimeUs = audioExtractor.sampleTime
+                        bufferInfo.flags = audioExtractor.sampleFlags
+                        muxer.writeSampleData(audioTrackIndex, buffer, bufferInfo)
+                        audioExtractor.advance()
+                    }
+                }
             }
 
             true

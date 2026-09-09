@@ -46,6 +46,31 @@ class OkHttpDownloadEngine(
     private val activeCalls = ConcurrentHashMap<String, MutableList<Call>>()
     private val cancellationRequests = ConcurrentHashMap.newKeySet<String>()
 
+    private val httpClient: OkHttpClient = client.newBuilder()
+        .addNetworkInterceptor { chain ->
+            val req = chain.request()
+            val host = req.url.host.lowercase()
+            val b = req.newBuilder()
+            if (req.header("Referer") == null) {
+                when {
+                    host.contains("tiktok") || host.contains("musical.ly") || host.contains("tikwm") ->
+                        b.header("Referer", "https://www.tiktok.com/")
+                    host.contains("instagram") || host.contains("cdninstagram") ->
+                        b.header("Referer", "https://www.instagram.com/")
+                    host.contains("facebook") || host.contains("fbcdn") ->
+                        b.header("Referer", "https://www.facebook.com/")
+                    host.contains("twitter") || host.contains("twimg") || host.contains("x.com") ->
+                        b.header("Referer", "https://twitter.com/")
+                    host.contains("reddit") || host.contains("redd.it") ->
+                        b.header("Referer", "https://www.reddit.com/")
+                    host.contains("googlevideo") || host.contains("youtube") ->
+                        b.header("Referer", "https://www.youtube.com/")
+                }
+            }
+            chain.proceed(b.build())
+        }
+        .build()
+
     override suspend fun download(
         request: DownloadRequest,
         outputDirectory: File,
@@ -58,9 +83,16 @@ class OkHttpDownloadEngine(
         try {
             onState(DownloadState.Preparing(DownloadProgress(status = "Resolving stream…")))
 
+            var resolvedTitle = request.title
             val resolvedFormat = if (request.format.isQuickPreset || !request.format.formatId.startsWith("http")) {
                 val discovery = discoveryEngine?.discoverFormats(request.url)
                 if (discovery is FormatDiscoveryResult.Success) {
+                    val discoveredTitle = discovery.catalog.title.takeIf {
+                        it.isNotBlank() && it != "Fast native downloads" && it != "Available formats"
+                    }
+                    if (discoveredTitle != null && (resolvedTitle.isBlank() || resolvedTitle.endsWith("video", ignoreCase = true) || resolvedTitle.endsWith("audio", ignoreCase = true))) {
+                        resolvedTitle = discoveredTitle
+                    }
                     val matching = if (request.format.mode == DownloadMode.VIDEO) {
                         discovery.catalog.videoFormats.firstOrNull { it.height == request.format.height }
                             ?: discovery.catalog.videoFormats.firstOrNull()
@@ -86,7 +118,7 @@ class OkHttpDownloadEngine(
                 request.format
             }
 
-            val safeTitle = MediaExportPolicy.sanitizeDisplayName(request.title, resolvedFormat.extension)
+            val safeTitle = MediaExportPolicy.sanitizeDisplayName(resolvedTitle, resolvedFormat.extension)
                 .substringBeforeLast('.')
                 .take(120)
             val baseName = safeTitle
@@ -274,6 +306,13 @@ class OkHttpDownloadEngine(
             host.contains("twitter") || host.contains("twimg") || host.contains("x.com") -> {
                 headers["Referer"] = "https://twitter.com/"
             }
+            host.contains("reddit") || host.contains("redd.it") -> {
+                headers["Referer"] = "https://www.reddit.com/"
+            }
+            host.contains("googlevideo") || host.contains("youtube") -> {
+                headers["Origin"] = "https://www.youtube.com"
+                headers["Referer"] = "https://www.youtube.com/"
+            }
         }
         customHeaders?.let { headers.putAll(it) }
         return headers
@@ -293,7 +332,7 @@ class OkHttpDownloadEngine(
                 reqBuilder.addHeader(k, v)
             }
             val req = reqBuilder.build()
-            client.newCall(req).execute().use { response ->
+            httpClient.newCall(req).execute().use { response ->
                 if (response.code == 206) {
                     val contentRange = response.header("Content-Range")
                     val totalFromRange = contentRange?.substringAfterLast('/')?.trim()?.toLongOrNull()
@@ -355,7 +394,7 @@ class OkHttpDownloadEngine(
                     }
                     val chunkRequest = chunkRequestBuilder.build()
 
-                    val call = client.newCall(chunkRequest)
+                    val call = httpClient.newCall(chunkRequest)
                     activeCalls.getOrPut(taskId, ::mutableListOf).add(call)
 
                     try {
@@ -448,64 +487,65 @@ class OkHttpDownloadEngine(
             httpRequestBuilder.addHeader(k, v)
         }
         val httpRequest = httpRequestBuilder.build()
-        val call = client.newCall(httpRequest)
+        val call = httpClient.newCall(httpRequest)
         activeCalls.getOrPut(taskId, ::mutableListOf).add(call)
 
-        val response = call.execute()
-        if (!response.isSuccessful) {
-            throw java.io.IOException("HTTP error ${response.code}: ${response.message}")
-        }
-        val ct = response.header("Content-Type").orEmpty().lowercase()
-        if (ct.contains("text/html")) {
-            throw java.io.IOException("Stream URL returned an HTML page ($ct) instead of a media stream.")
-        }
+        call.execute().use { response ->
+            if (!response.isSuccessful) {
+                throw java.io.IOException("HTTP error ${response.code}: ${response.message}")
+            }
+            val ct = response.header("Content-Type").orEmpty().lowercase()
+            if (ct.contains("text/html")) {
+                throw java.io.IOException("Stream URL returned an HTML page ($ct) instead of a media stream.")
+            }
 
-        val body = response.body ?: throw java.io.IOException("Empty response body")
-        val totalBytes = body.contentLength().takeIf { it > 0 }
-        var downloadedBytes = 0L
-        var lastUpdateAt = System.currentTimeMillis()
-        var lastBytesAtUpdate = 0L
+            val body = response.body ?: throw java.io.IOException("Empty response body")
+            val totalBytes = body.contentLength().takeIf { it > 0 }
+            var downloadedBytes = 0L
+            var lastUpdateAt = System.currentTimeMillis()
+            var lastBytesAtUpdate = 0L
 
-        destinationFile.outputStream().use { fileOut ->
-            body.byteStream().use { streamIn ->
-                val buffer = ByteArray(256 * 1024)
-                while (true) {
-                    if (cancellationRequests.contains(taskId)) {
-                        call.cancel()
-                        throw CancellationException("Download cancelled")
-                    }
-                    val read = streamIn.read(buffer)
-                    if (read < 0) break
-                    fileOut.write(buffer, 0, read)
-                    downloadedBytes += read
-
-                    val now = System.currentTimeMillis()
-                    if (now - lastUpdateAt >= 400) {
-                        val durationSec = (now - lastUpdateAt) / 1000.0
-                        val bytesSince = downloadedBytes - lastBytesAtUpdate
-                        val speed = if (durationSec > 0) (bytesSince / durationSec).toLong() else 0L
-                        val eta = if (totalBytes != null && speed > 0) {
-                            (totalBytes - downloadedBytes).coerceAtLeast(0) / speed
-                        } else null
-                        val percent = totalBytes?.let {
-                            (downloadedBytes.toDouble() * 100.0 / it.toDouble()).toFloat()
+            destinationFile.outputStream().use { fileOut ->
+                body.byteStream().use { streamIn ->
+                    val buffer = ByteArray(256 * 1024)
+                    while (true) {
+                        if (cancellationRequests.contains(taskId)) {
+                            call.cancel()
+                            throw CancellationException("Download cancelled")
                         }
+                        val read = streamIn.read(buffer)
+                        if (read < 0) break
+                        fileOut.write(buffer, 0, read)
+                        downloadedBytes += read
 
-                        val progress = DownloadProgress(
-                            percentage = percent,
-                            downloadedBytes = downloadedBytes,
-                            totalBytes = totalBytes,
-                            speedBytesPerSecond = speed,
-                            etaSeconds = eta,
-                            status = if (transferKind == DownloadTransferKind.VIDEO) {
-                                "Downloading video…"
-                            } else {
-                                "Downloading audio…"
-                            },
-                        )
-                        onState(DownloadState.Downloading(progress, transferKind))
-                        lastUpdateAt = now
-                        lastBytesAtUpdate = downloadedBytes
+                        val now = System.currentTimeMillis()
+                        if (now - lastUpdateAt >= 400) {
+                            val durationSec = (now - lastUpdateAt) / 1000.0
+                            val bytesSince = downloadedBytes - lastBytesAtUpdate
+                            val speed = if (durationSec > 0) (bytesSince / durationSec).toLong() else 0L
+                            val eta = if (totalBytes != null && speed > 0) {
+                                (totalBytes - downloadedBytes).coerceAtLeast(0) / speed
+                            } else null
+                            val percent = totalBytes?.let {
+                                (downloadedBytes.toDouble() * 100.0 / it.toDouble()).toFloat()
+                            }
+
+                            val progress = DownloadProgress(
+                                percentage = percent,
+                                downloadedBytes = downloadedBytes,
+                                totalBytes = totalBytes,
+                                speedBytesPerSecond = speed,
+                                etaSeconds = eta,
+                                status = if (transferKind == DownloadTransferKind.VIDEO) {
+                                    "Downloading video…"
+                                } else {
+                                    "Downloading audio…"
+                                },
+                            )
+                            onState(DownloadState.Downloading(progress, transferKind))
+                            lastUpdateAt = now
+                            lastBytesAtUpdate = downloadedBytes
+                        }
                     }
                 }
             }

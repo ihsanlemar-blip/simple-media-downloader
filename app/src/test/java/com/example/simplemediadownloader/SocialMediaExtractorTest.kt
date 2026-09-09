@@ -30,10 +30,23 @@ class SocialMediaExtractorTest {
     }
 
     @Test
-    fun `format model supports platform httpHeaders`() {
+    fun `cleanTitle strips platform wrappers for Instagram and Facebook`() {
+        val igTitle = "photography_lover on Instagram: \"Breathtaking mountain view from above\""
+        assertEquals("Breathtaking mountain view from above", SocialMediaExtractor.cleanTitle(igTitle))
+
+        val fbTitle = "Amazing Skate Tricks 2024 | Facebook"
+        assertEquals("Amazing Skate Tricks 2024", SocialMediaExtractor.cleanTitle(fbTitle))
+
+        val fbTitle2 = "Cooking Tutorial - Facebook"
+        assertEquals("Cooking Tutorial", SocialMediaExtractor.cleanTitle(fbTitle2))
+    }
+
+    @Test
+    fun `format model supports platform httpHeaders including Cookie jar`() {
         val headers = mapOf(
             "User-Agent" to "Mozilla/5.0",
             "Referer" to "https://www.tiktok.com/",
+            "Cookie" to "ttwid=12345; msToken=abcdef",
         )
         val format = AvailableFormat(
             key = "tiktok-hd",
@@ -47,6 +60,7 @@ class SocialMediaExtractorTest {
 
         assertEquals("https://www.tiktok.com/", format.httpHeaders?.get("Referer"))
         assertEquals("Mozilla/5.0", format.httpHeaders?.get("User-Agent"))
+        assertEquals("ttwid=12345; msToken=abcdef", format.httpHeaders?.get("Cookie"))
     }
 
     @Test

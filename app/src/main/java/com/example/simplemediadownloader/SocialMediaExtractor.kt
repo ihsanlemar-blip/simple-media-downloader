@@ -1,5 +1,8 @@
 package com.example.simplemediadownloader
 
+import okhttp3.Cookie
+import okhttp3.CookieJar
+import okhttp3.HttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -10,6 +13,27 @@ import java.net.URLEncoder
 import java.util.regex.Pattern
 
 object SocialMediaExtractor {
+
+    private class InMemoryCookieJar : CookieJar {
+        private val cookieStore = mutableListOf<Cookie>()
+
+        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+            synchronized(cookieStore) {
+                cookieStore.removeAll { existing -> cookies.any { it.name == existing.name } }
+                cookieStore.addAll(cookies)
+            }
+        }
+
+        override fun loadForRequest(url: HttpUrl): List<Cookie> {
+            return synchronized(cookieStore) { cookieStore.toList() }
+        }
+
+        fun getFormattedCookieHeader(): String {
+            return synchronized(cookieStore) {
+                cookieStore.distinctBy { it.name }.joinToString("; ") { "${it.name}=${it.value}" }
+            }
+        }
+    }
 
     private const val USER_AGENT =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -79,16 +103,16 @@ object SocialMediaExtractor {
     // ==========================================
 
     private fun extractTikTok(client: OkHttpClient, url: String): FormatDiscoveryResult {
-        // Tier 1: TikWM Public High-Speed API (Watermark-free HD, MP3 audio, full metadata)
-        val tikWmCatalog = tryTikWmApi(client, url)
-        if (tikWmCatalog != null && tikWmCatalog.videoFormats.isNotEmpty()) {
-            return FormatDiscoveryResult.Success(tikWmCatalog)
-        }
-
-        // Tier 2: Universal SSR rehydration and mobile web scraper
+        // Tier 1: Universal SSR rehydration and mobile web scraper with session cookie preservation
         val webCatalog = tryTikTokWebScrape(client, url)
         if (webCatalog != null && webCatalog.videoFormats.isNotEmpty()) {
             return FormatDiscoveryResult.Success(webCatalog)
+        }
+
+        // Tier 2: TikWM Public High-Speed API (Watermark-free HD, MP3 audio, full metadata)
+        val tikWmCatalog = tryTikWmApi(client, url)
+        if (tikWmCatalog != null && tikWmCatalog.videoFormats.isNotEmpty()) {
+            return FormatDiscoveryResult.Success(tikWmCatalog)
         }
 
         return FormatDiscoveryResult.Failure(
@@ -210,6 +234,13 @@ object SocialMediaExtractor {
 
     private fun tryTikTokWebScrape(client: OkHttpClient, url: String): MediaFormatCatalog? {
         return try {
+            val cookieJar = InMemoryCookieJar()
+            val cookieClient = client.newBuilder()
+                .cookieJar(cookieJar)
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .build()
+
             val request = Request.Builder()
                 .url(url)
                 .addHeader("User-Agent", MOBILE_USER_AGENT)
@@ -217,58 +248,157 @@ object SocialMediaExtractor {
                 .addHeader("Accept-Language", "en-US,en;q=0.9")
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            val html: String
+            var finalUrl = url
+            cookieClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return null
-                val html = response.body?.string().orEmpty()
+                finalUrl = response.request.url.toString()
+                html = response.body?.string().orEmpty()
+            }
 
-                val videoUrl = findMetaProperty(html, "og:video")
+            val cookieHeader = cookieJar.getFormattedCookieHeader()
+            val headers = mutableMapOf(
+                "User-Agent" to MOBILE_USER_AGENT,
+                "Referer" to "https://www.tiktok.com/",
+            )
+            if (cookieHeader.isNotBlank()) {
+                headers["Cookie"] = cookieHeader
+            }
+
+            // Parse SSR data from __UNIVERSAL_DATA_FOR_REHYDRATION__
+            var directVideoUrl: String? = null
+            var directAudioUrl: String? = null
+            var itemTitle: String? = null
+            var itemAuthor: String? = null
+            var itemCover: String? = null
+
+            val rehydrationJson = extractPattern(html, """id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)</script>""")
+            if (!rehydrationJson.isNullOrBlank()) {
+                try {
+                    val rootJson = JSONObject(rehydrationJson)
+                    val scope = rootJson.optJSONObject("__DEFAULT_SCOPE__")
+                    if (scope != null) {
+                        val keys = scope.keys()
+                        while (keys.hasNext()) {
+                            val key = keys.next()
+                            val section = scope.optJSONObject(key) ?: continue
+                            val itemStruct = section.optJSONObject("itemInfo")?.optJSONObject("itemStruct")
+                                ?: section.optJSONObject("itemStruct")
+                            if (itemStruct != null) {
+                                val videoObj = itemStruct.optJSONObject("video")
+                                directVideoUrl = videoObj?.optString("playAddr")?.takeIf { it.isNotBlank() }
+                                    ?: videoObj?.optString("downloadAddr")?.takeIf { it.isNotBlank() }
+                                itemCover = videoObj?.optString("cover")?.takeIf { it.isNotBlank() }
+                                itemTitle = itemStruct.optString("desc").takeIf { it.isNotBlank() }
+                                val authorObj = itemStruct.optJSONObject("author")
+                                itemAuthor = authorObj?.optString("nickname")?.takeIf { it.isNotBlank() }
+                                    ?: authorObj?.optString("uniqueId")?.takeIf { it.isNotBlank() }
+                                val musicObj = itemStruct.optJSONObject("music")
+                                directAudioUrl = musicObj?.optString("playUrl")?.takeIf { it.isNotBlank() }
+                                break
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+
+            if (directVideoUrl.isNullOrBlank()) {
+                directVideoUrl = findMetaProperty(html, "og:video")
                     ?: findMetaProperty(html, "og:video:secure_url")
                     ?: extractPattern(html, """"playAddr"\s*:\s*"([^"]+)"""")
                     ?: extractPattern(html, """"downloadAddr"\s*:\s*"([^"]+)"""")
-                    ?: return null
+            }
 
-                val cleanVideoUrl = unescapeJsonUrl(videoUrl)
-                val rawTitle = findMetaProperty(html, "og:title")
+            if (directVideoUrl.isNullOrBlank()) return null
+
+            val cleanVideoUrl = unescapeJsonUrl(directVideoUrl)
+
+            if (itemTitle.isNullOrBlank()) {
+                itemTitle = findMetaProperty(html, "og:title")
                     ?: extractPattern(html, """<title>([^<]+)</title>""")
-                    ?: "TikTok Video"
-                val title = cleanTitle(rawTitle)
+            }
 
-                val headers = mapOf(
-                    "User-Agent" to MOBILE_USER_AGENT,
-                    "Referer" to "https://www.tiktok.com/",
+            // If title is missing or generic, fetch official TikTok oEmbed metadata
+            if (itemTitle.isNullOrBlank() || (itemTitle.contains("TikTok") && itemTitle.length < 15)) {
+                val oembed = fetchTikTokOEmbed(client, finalUrl)
+                if (!oembed.first.isNullOrBlank()) itemTitle = oembed.first
+                if (!oembed.second.isNullOrBlank() && itemAuthor.isNullOrBlank()) itemAuthor = oembed.second
+            }
+
+            val title = cleanTitle(itemTitle ?: "TikTok Video")
+
+            val videoFormats = mutableListOf<AvailableFormat>()
+            videoFormats.add(
+                AvailableFormat(
+                    key = "tiktok-web-hd",
+                    mode = DownloadMode.VIDEO,
+                    formatId = cleanVideoUrl,
+                    extension = "mp4",
+                    height = 1080,
+                    formatNote = "HD Video",
+                    isQuickPreset = false,
+                    httpHeaders = headers,
                 )
+            )
 
-                val videoFormats = listOf(
+            val audioFormats = mutableListOf<AvailableFormat>()
+            if (!directAudioUrl.isNullOrBlank()) {
+                val cleanAudioUrl = unescapeJsonUrl(directAudioUrl)
+                audioFormats.add(
                     AvailableFormat(
-                        key = "tiktok-web-hd",
-                        mode = DownloadMode.VIDEO,
-                        formatId = cleanVideoUrl,
-                        extension = "mp4",
-                        height = 1080,
-                        formatNote = "Standard Quality",
+                        key = "tiktok-web-music",
+                        mode = DownloadMode.AUDIO_MP3,
+                        formatId = cleanAudioUrl,
+                        extension = "mp3",
+                        bitrateKbps = 192,
+                        formatNote = "Original Soundtrack",
+                        isQuickPreset = false,
                         httpHeaders = headers,
                     )
                 )
-                val audioFormats = listOf(
-                    AvailableFormat(
-                        key = "tiktok-web-audio",
-                        mode = DownloadMode.AUDIO_ORIGINAL,
-                        formatId = cleanVideoUrl,
-                        extension = "mp4",
-                        formatNote = "Original Sound",
-                        httpHeaders = headers,
-                    )
+            }
+            audioFormats.add(
+                AvailableFormat(
+                    key = "tiktok-web-audio",
+                    mode = DownloadMode.AUDIO_ORIGINAL,
+                    formatId = cleanVideoUrl,
+                    extension = "mp4",
+                    formatNote = "Original Audio",
+                    isQuickPreset = false,
+                    httpHeaders = headers,
                 )
+            )
 
-                MediaFormatCatalog(
-                    sourceUrl = url,
-                    title = title,
-                    videoFormats = videoFormats,
-                    audioFormats = audioFormats,
+            MediaFormatCatalog(
+                sourceUrl = url,
+                title = title,
+                videoFormats = videoFormats,
+                audioFormats = audioFormats,
+                author = itemAuthor,
+                thumbnailUrl = itemCover,
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun fetchTikTokOEmbed(client: OkHttpClient, url: String): Pair<String?, String?> {
+        return try {
+            val oembedUrl = "https://www.tiktok.com/oembed?url=" + URLEncoder.encode(url, "UTF-8")
+            val req = Request.Builder()
+                .url(oembedUrl)
+                .addHeader("User-Agent", USER_AGENT)
+                .build()
+            client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return Pair(null, null)
+                val json = JSONObject(resp.body?.string().orEmpty())
+                Pair(
+                    json.optString("title").takeIf { it.isNotBlank() },
+                    json.optString("author_name").takeIf { it.isNotBlank() }
                 )
             }
         } catch (_: Exception) {
-            null
+            Pair(null, null)
         }
     }
 
@@ -299,7 +429,7 @@ object SocialMediaExtractor {
     }
 
     private fun extractInstagramShortcode(url: String): String? {
-        val pattern = Pattern.compile("""/(?:p|reel|tv)/([A-Za-z0-9_-]+)""")
+        val pattern = Pattern.compile("""/(?:p|reels?|tv|share/(?:reel|p))/([A-Za-z0-9_-]+)""")
         val matcher = pattern.matcher(url)
         return if (matcher.find()) matcher.group(1) else null
     }
@@ -483,8 +613,9 @@ object SocialMediaExtractor {
         val patterns = listOf(
             Pattern.compile("""/(?:reel|videos|posts)/([0-9]+)"""),
             Pattern.compile("""[?&]v=([0-9]+)"""),
-            Pattern.compile("""facebook\.com/share/[vr]/([a-zA-Z0-9_-]+)"""),
-            Pattern.compile("""facebook\.com/watch/\?v=([0-9]+)"""),
+            Pattern.compile("""facebook\.com/share/[vrp]/([a-zA-Z0-9_-]+)"""),
+            Pattern.compile("""facebook\.com/watch/?\?v=([0-9]+)"""),
+            Pattern.compile("""fb\.watch/([a-zA-Z0-9_-]+)"""),
         )
         for (pattern in patterns) {
             val matcher = pattern.matcher(url)
@@ -631,6 +762,10 @@ object SocialMediaExtractor {
             ?: findFacebookStream(html, "sd_src_no_ratelimit")
             ?: findFacebookStream(html, "browser_native_sd_url")
             ?: findFacebookStream(html, "playable_url")
+            ?: findMetaProperty(html, "og:video")
+            ?: findMetaProperty(html, "og:video:url")
+            ?: findMetaProperty(html, "og:video:secure_url")
+            ?: findMetaProperty(html, "twitter:player:stream")
             ?: findDirectFbcdnMp4(html)
 
         val validHd = hdUrl?.takeIf { isValidFbStream(it) }
@@ -748,18 +883,23 @@ object SocialMediaExtractor {
     // ==========================================
 
     private fun extractTwitter(client: OkHttpClient, url: String): FormatDiscoveryResult {
-        val tweetId = url.substringBefore('?').substringAfterLast('/')
-        val endpoints = listOf(
-            "https://api.vxtwitter.com/Twitter/status/$tweetId",
-            "https://api.fxtwitter.com/status/$tweetId",
-            "https://api.fixupx.com/status/$tweetId",
+        val tweetId = url.substringBefore('?').trimEnd('/').substringAfterLast('/')
+        if (tweetId.isBlank()) {
+            return FormatDiscoveryResult.Failure("Invalid Twitter/X URL format.")
+        }
+
+        // Tier 1: FxTwitter & Fixupx REST APIs
+        val jsonEndpoints = listOf(
+            "https://api.fxtwitter.com/i/status/$tweetId",
+            "https://api.fixupx.com/i/status/$tweetId",
         )
 
-        for (apiEndpoint in endpoints) {
+        for (apiEndpoint in jsonEndpoints) {
             try {
                 val request = Request.Builder()
                     .url(apiEndpoint)
                     .addHeader("User-Agent", USER_AGENT)
+                    .addHeader("Accept", "application/json")
                     .build()
 
                 val jsonString = client.newCall(request).execute().use { response ->
@@ -767,30 +907,54 @@ object SocialMediaExtractor {
                     response.body?.string().orEmpty()
                 } ?: continue
 
-                val json = JSONObject(jsonString)
-                val mediaUrl = json.optString("media_url", "")
-                val mediaType = json.optString("mediaType", "")
-                val text = json.optString("text", "X Post").ifBlank { "X Post" }
-                val author = json.optString("user_name").ifBlank { json.optString("user_screen_name") }
+                val rootJson = JSONObject(jsonString)
+                val tweetObj = rootJson.optJSONObject("tweet") ?: rootJson
 
-                val videoUrl = if (mediaType == "video" && mediaUrl.isNotBlank()) {
-                    mediaUrl
-                } else {
-                    val videoArray = json.optJSONArray("media_extended")
-                    var foundUrl = ""
-                    if (videoArray != null) {
-                        for (i in 0 until videoArray.length()) {
-                            val item = videoArray.getJSONObject(i)
-                            if (item.optString("type") == "video") {
-                                foundUrl = item.optString("url")
+                val text = tweetObj.optString("text").ifBlank {
+                    tweetObj.optString("raw_text", "X Post")
+                }
+
+                val authorObj = tweetObj.optJSONObject("author")
+                val author = authorObj?.optString("name")
+                    ?: tweetObj.optString("user_name").ifBlank { tweetObj.optString("user_screen_name") }
+
+                var videoUrl: String? = null
+                var videoHeight = 1080
+
+                val mediaObj = tweetObj.optJSONObject("media")
+                val videosArray = mediaObj?.optJSONArray("videos")
+                    ?: tweetObj.optJSONArray("media_extended")
+
+                if (videosArray != null && videosArray.length() > 0) {
+                    val firstVideo = videosArray.optJSONObject(0)
+                    videoUrl = firstVideo?.optString("url")
+                    val h = firstVideo?.optInt("height", 0) ?: 0
+                    if (h > 0) videoHeight = h
+                }
+
+                if (videoUrl.isNullOrBlank()) {
+                    val allArray = mediaObj?.optJSONArray("all")
+                    if (allArray != null) {
+                        for (i in 0 until allArray.length()) {
+                            val item = allArray.optJSONObject(i)
+                            if (item?.optString("type") == "video") {
+                                videoUrl = item.optString("url")
+                                val h = item.optInt("height", 0) ?: 0
+                                if (h > 0) videoHeight = h
                                 break
                             }
                         }
                     }
-                    foundUrl
                 }
 
-                if (videoUrl.isNotBlank()) {
+                if (videoUrl.isNullOrBlank()) {
+                    val directMedia = tweetObj.optString("media_url")
+                    if (tweetObj.optString("mediaType") == "video" && directMedia.isNotBlank()) {
+                        videoUrl = directMedia
+                    }
+                }
+
+                if (!videoUrl.isNullOrBlank()) {
                     val headers = mapOf("User-Agent" to USER_AGENT, "Referer" to "https://twitter.com/")
                     val videoFormats = listOf(
                         AvailableFormat(
@@ -798,7 +962,7 @@ object SocialMediaExtractor {
                             mode = DownloadMode.VIDEO,
                             formatId = videoUrl,
                             extension = "mp4",
-                            height = 1080,
+                            height = videoHeight,
                             formatNote = "MP4 Video",
                             isQuickPreset = false,
                             httpHeaders = headers,
@@ -825,6 +989,70 @@ object SocialMediaExtractor {
                             author = author.takeIf { it.isNotBlank() },
                         )
                     )
+                }
+            } catch (_: Exception) {}
+        }
+
+        // Tier 2: OpenGraph crawler emulation on fxtwitter / fixupx
+        val crawlerEndpoints = listOf(
+            "https://fxtwitter.com/i/status/$tweetId",
+            "https://fixupx.com/status/$tweetId",
+        )
+        for (crawlerUrl in crawlerEndpoints) {
+            try {
+                val request = Request.Builder()
+                    .url(crawlerUrl)
+                    .addHeader("User-Agent", CRAWLER_USER_AGENT)
+                    .addHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .build()
+
+                val catalog = client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use null
+                    val html = response.body?.string().orEmpty()
+
+                    val videoUrl = findMetaProperty(html, "og:video")
+                        ?: findMetaProperty(html, "og:video:url")
+                        ?: findMetaProperty(html, "og:video:secure_url")
+                        ?: findMetaProperty(html, "twitter:player:stream")
+                        ?: return@use null
+
+                    val title = findMetaProperty(html, "og:title")
+                        ?: findMetaProperty(html, "og:description")
+                        ?: "X Post"
+
+                    val headers = mapOf("User-Agent" to USER_AGENT, "Referer" to "https://twitter.com/")
+                    val videoFormats = listOf(
+                        AvailableFormat(
+                            key = "tw-og-video",
+                            mode = DownloadMode.VIDEO,
+                            formatId = videoUrl,
+                            extension = "mp4",
+                            height = 1080,
+                            formatNote = "MP4 Video",
+                            isQuickPreset = false,
+                            httpHeaders = headers,
+                        )
+                    )
+                    val audioFormats = listOf(
+                        AvailableFormat(
+                            key = "tw-og-audio",
+                            mode = DownloadMode.AUDIO_ORIGINAL,
+                            formatId = videoUrl,
+                            extension = "mp4",
+                            formatNote = "Audio",
+                            isQuickPreset = false,
+                            httpHeaders = headers,
+                        )
+                    )
+                    MediaFormatCatalog(
+                        sourceUrl = url,
+                        title = cleanTitle(title).take(100),
+                        videoFormats = videoFormats,
+                        audioFormats = audioFormats,
+                    )
+                }
+                if (catalog != null) {
+                    return FormatDiscoveryResult.Success(catalog)
                 }
             } catch (_: Exception) {}
         }
@@ -1098,6 +1326,16 @@ object SocialMediaExtractor {
             .replace(Regex("""\s+"""), " ")
             .trim()
 
+        if (decoded.contains(" on Instagram: \"") && decoded.endsWith("\"")) {
+            decoded = decoded.substringAfter(" on Instagram: \"").removeSuffix("\"")
+        }
+        if (decoded.endsWith(" | Facebook")) {
+            decoded = decoded.removeSuffix(" | Facebook")
+        }
+        if (decoded.endsWith(" - Facebook")) {
+            decoded = decoded.removeSuffix(" - Facebook")
+        }
+
         val strippedPrefix = decoded.replace(
             Regex("""^\d+[\d.,]*[KkMmBb]?\s+(?:views|plays|reactions)\s*(?:[·|•]\s*\d+[\d.,]*[KkMmBb]?\s+(?:views|plays|reactions))*\s*[|•·]\s*""", RegexOption.IGNORE_CASE),
             ""
@@ -1127,8 +1365,12 @@ object SocialMediaExtractor {
 
     private fun unescapeJsonUrl(url: String): String {
         return url.replace("\\/", "/")
+            .replace("\\u002F", "/")
+            .replace("\\u00252F", "/")
             .replace("\\u0025", "%")
             .replace("\\u0026", "&")
+            .replace("\\u003D", "=")
+            .replace("\\u003F", "?")
             .replace("&amp;", "&")
     }
 }
