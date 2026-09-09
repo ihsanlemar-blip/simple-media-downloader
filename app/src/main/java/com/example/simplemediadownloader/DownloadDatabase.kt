@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 
 @Database(
     entities = [DownloadTaskEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class DownloadDatabase : RoomDatabase() {
@@ -24,6 +24,7 @@ abstract class DownloadDatabase : RoomDatabase() {
                 DATABASE_NAME,
             )
                 .addMigrations(*DownloadDatabaseMigrations.ALL)
+                .fallbackToDestructiveMigration()
                 .build()
     }
 }
@@ -56,5 +57,11 @@ object DownloadDatabaseMigrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2)
+    val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE download_tasks ADD COLUMN http_headers TEXT")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
 }

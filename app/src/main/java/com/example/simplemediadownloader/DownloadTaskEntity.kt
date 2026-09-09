@@ -50,6 +50,7 @@ data class DownloadTaskEntity(
     @ColumnInfo(name = "failure_category") val failureCategory: String?,
     @ColumnInfo(name = "failure_message") val failureMessage: String?,
     @ColumnInfo(name = "technical_failure_detail") val technicalFailureDetail: String?,
+    @ColumnInfo(name = "http_headers") val httpHeaders: String? = null,
 )
 
 fun DownloadRecord.toEntity(): DownloadTaskEntity = DownloadTaskEntity(
@@ -90,6 +91,7 @@ fun DownloadRecord.toEntity(): DownloadTaskEntity = DownloadTaskEntity(
     failureCategory = failureCategory?.name,
     failureMessage = failureMessage,
     technicalFailureDetail = technicalFailureDetail,
+    httpHeaders = serializeHeaders(format.httpHeaders),
 )
 
 fun DownloadTaskEntity.toRecord(): DownloadRecord = DownloadRecord(
@@ -114,6 +116,7 @@ fun DownloadTaskEntity.toRecord(): DownloadRecord = DownloadRecord(
         sourceHeight = sourceHeight,
         requiresDownscale = requiresDownscale,
         isQuickPreset = isQuickPreset,
+        httpHeaders = deserializeHeaders(httpHeaders),
     ),
     status = enumValueOrDefault(status, DownloadTaskStatus.FAILED),
     stage = enumValueOrDefault(processingStage, DownloadProcessingStage.FAILED),
@@ -139,6 +142,29 @@ fun DownloadTaskEntity.toRecord(): DownloadRecord = DownloadRecord(
     failureMessage = failureMessage,
     technicalFailureDetail = technicalFailureDetail,
 )
+
+private fun serializeHeaders(headers: Map<String, String>?): String? {
+    if (headers.isNullOrEmpty()) return null
+    val json = org.json.JSONObject()
+    headers.forEach { (k, v) -> json.put(k, v) }
+    return json.toString()
+}
+
+private fun deserializeHeaders(raw: String?): Map<String, String>? {
+    if (raw.isNullOrBlank()) return null
+    return try {
+        val json = org.json.JSONObject(raw)
+        val map = mutableMapOf<String, String>()
+        val keys = json.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            map[key] = json.getString(key)
+        }
+        map
+    } catch (_: Exception) {
+        null
+    }
+}
 
 private inline fun <reified T : Enum<T>> enumValueOrDefault(value: String, default: T): T =
     enumValues<T>().firstOrNull { it.name == value } ?: default

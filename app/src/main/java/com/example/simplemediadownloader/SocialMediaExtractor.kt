@@ -104,6 +104,36 @@ object SocialMediaExtractor {
         return currentUrl
     }
 
+    private fun probeStreamSize(
+        client: OkHttpClient,
+        url: String,
+        headers: Map<String, String>? = null,
+    ): Long? {
+        if (url.isBlank() || !url.startsWith("http", ignoreCase = true)) return null
+        return try {
+            val probeClient = client.newBuilder()
+                .connectTimeout(java.time.Duration.ofSeconds(4))
+                .readTimeout(java.time.Duration.ofSeconds(4))
+                .build()
+            val reqBuilder = Request.Builder()
+                .url(url)
+                .header("Range", "bytes=0-0")
+            headers?.forEach { (k, v) -> reqBuilder.header(k, v) }
+            probeClient.newCall(reqBuilder.build()).execute().use { resp ->
+                if (resp.code == 206) {
+                    resp.header("Content-Range")?.substringAfterLast('/')?.trim()?.toLongOrNull()
+                } else if (resp.isSuccessful) {
+                    val cl = resp.body?.contentLength()?.takeIf { it > 0 }
+                    cl ?: resp.header("Content-Length")?.toLongOrNull()
+                } else {
+                    null
+                }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     // ==========================================
     // TIKTOK MULTI-TIER EXTRACTOR
     // ==========================================
@@ -162,10 +192,15 @@ object SocialMediaExtractor {
 
                 if (playUrl.isBlank() && hdUrl.isNullOrBlank()) return null
 
+                val standardStream = if (playUrl.isNotBlank()) playUrl else hdUrl!!
                 val headers = mapOf(
                     "User-Agent" to USER_AGENT,
                     "Referer" to "https://www.tiktok.com/",
                 )
+
+                val resolvedHdSize = hdSize ?: hdUrl?.let { probeStreamSize(client, it, headers) }
+                val resolvedSize = size ?: probeStreamSize(client, standardStream, headers)
+                val musicSize = musicUrl?.let { probeStreamSize(client, it, headers) }
 
                 val videoFormats = mutableListOf<AvailableFormat>()
                 if (!hdUrl.isNullOrBlank()) {
@@ -177,14 +212,13 @@ object SocialMediaExtractor {
                             extension = "mp4",
                             height = 1080,
                             formatNote = "HD No Watermark",
-                            estimatedSizeBytes = hdSize ?: (size?.times(2)),
-                            sizeIsApproximate = hdSize == null,
+                            estimatedSizeBytes = resolvedHdSize ?: (resolvedSize?.times(2)),
+                            sizeIsApproximate = resolvedHdSize == null,
                             httpHeaders = headers,
                         )
                     )
                 }
 
-                val standardStream = if (playUrl.isNotBlank()) playUrl else hdUrl!!
                 videoFormats.add(
                     AvailableFormat(
                         key = "tiktok-watermark-free",
@@ -193,8 +227,8 @@ object SocialMediaExtractor {
                         extension = "mp4",
                         height = 720,
                         formatNote = "Watermark-Free",
-                        estimatedSizeBytes = size,
-                        sizeIsApproximate = false,
+                        estimatedSizeBytes = resolvedSize,
+                        sizeIsApproximate = resolvedSize == null,
                         httpHeaders = headers,
                     )
                 )
@@ -209,6 +243,8 @@ object SocialMediaExtractor {
                             extension = "mp3",
                             bitrateKbps = 192,
                             formatNote = "Original Soundtrack",
+                            estimatedSizeBytes = musicSize,
+                            sizeIsApproximate = musicSize == null,
                             httpHeaders = headers,
                         )
                     )
@@ -220,6 +256,8 @@ object SocialMediaExtractor {
                         formatId = standardStream,
                         extension = "mp4",
                         formatNote = "Original Audio",
+                        estimatedSizeBytes = resolvedSize,
+                        sizeIsApproximate = resolvedSize == null,
                         httpHeaders = headers,
                     )
                 )
@@ -360,6 +398,11 @@ object SocialMediaExtractor {
 
             val title = cleanTitle(itemTitle ?: "TikTok Video")
 
+            val videoSize = probeStreamSize(client, cleanVideoUrl, headers)
+            val audioSize = if (!directAudioUrl.isNullOrBlank()) {
+                probeStreamSize(client, unescapeJsonUrl(directAudioUrl), headers)
+            } else null
+
             val videoFormats = mutableListOf<AvailableFormat>()
             videoFormats.add(
                 AvailableFormat(
@@ -369,6 +412,8 @@ object SocialMediaExtractor {
                     extension = "mp4",
                     height = videoHeight ?: 1080,
                     formatNote = "HD Video",
+                    estimatedSizeBytes = videoSize,
+                    sizeIsApproximate = videoSize == null,
                     isQuickPreset = false,
                     httpHeaders = headers,
                 )
@@ -385,6 +430,8 @@ object SocialMediaExtractor {
                         extension = "mp3",
                         bitrateKbps = 192,
                         formatNote = "Original Soundtrack",
+                        estimatedSizeBytes = audioSize,
+                        sizeIsApproximate = audioSize == null,
                         isQuickPreset = false,
                         httpHeaders = headers,
                     )
@@ -397,6 +444,8 @@ object SocialMediaExtractor {
                     formatId = cleanVideoUrl,
                     extension = "mp4",
                     formatNote = "Original Audio",
+                    estimatedSizeBytes = videoSize,
+                    sizeIsApproximate = videoSize == null,
                     isQuickPreset = false,
                     httpHeaders = headers,
                 )
@@ -582,6 +631,7 @@ object SocialMediaExtractor {
                     else -> "Standard Quality"
                 }
 
+                val streamSize = probeStreamSize(client, cleanUrl, headers)
                 videoFormats.add(
                     AvailableFormat(
                         key = "ig-relay-video-$i",
@@ -591,6 +641,8 @@ object SocialMediaExtractor {
                         width = width ?: 0,
                         height = height ?: 1080,
                         formatNote = note,
+                        estimatedSizeBytes = streamSize,
+                        sizeIsApproximate = streamSize == null,
                         httpHeaders = headers,
                     )
                 )
@@ -598,6 +650,7 @@ object SocialMediaExtractor {
 
             if (videoFormats.isEmpty() || bestUrl == null) return null
 
+            val primarySize = videoFormats.firstOrNull()?.estimatedSizeBytes
             val audioFormats = listOf(
                 AvailableFormat(
                     key = "ig-relay-audio",
@@ -605,6 +658,8 @@ object SocialMediaExtractor {
                     formatId = bestUrl,
                     extension = "mp4",
                     formatNote = "Original Audio",
+                    estimatedSizeBytes = primarySize,
+                    sizeIsApproximate = primarySize == null,
                     httpHeaders = headers,
                 )
             )
@@ -671,6 +726,7 @@ object SocialMediaExtractor {
                     "Referer" to "https://www.instagram.com/",
                 )
 
+                val streamSize = probeStreamSize(client, cleanVideoUrl, headers)
                 val videoFormats = listOf(
                     AvailableFormat(
                         key = "ig-embed-video",
@@ -679,6 +735,8 @@ object SocialMediaExtractor {
                         extension = "mp4",
                         height = 1080,
                         formatNote = "Best Quality",
+                        estimatedSizeBytes = streamSize,
+                        sizeIsApproximate = streamSize == null,
                         httpHeaders = headers,
                     )
                 )
@@ -689,6 +747,8 @@ object SocialMediaExtractor {
                         formatId = cleanVideoUrl,
                         extension = "mp4",
                         formatNote = "Original Audio",
+                        estimatedSizeBytes = streamSize,
+                        sizeIsApproximate = streamSize == null,
                         httpHeaders = headers,
                     )
                 )
@@ -736,6 +796,7 @@ object SocialMediaExtractor {
                         "Referer" to "https://www.instagram.com/",
                     )
 
+                    val streamSize = probeStreamSize(client, cleanVideoUrl, headers)
                     val videoFormats = listOf(
                         AvailableFormat(
                             key = "ig-crawler-video",
@@ -744,6 +805,8 @@ object SocialMediaExtractor {
                             extension = "mp4",
                             height = 1080,
                             formatNote = "HD Quality",
+                            estimatedSizeBytes = streamSize,
+                            sizeIsApproximate = streamSize == null,
                             httpHeaders = headers,
                         )
                     )
@@ -754,6 +817,8 @@ object SocialMediaExtractor {
                             formatId = cleanVideoUrl,
                             extension = "mp4",
                             formatNote = "Original Audio",
+                            estimatedSizeBytes = streamSize,
+                            sizeIsApproximate = streamSize == null,
                             httpHeaders = headers,
                         )
                     )
@@ -854,7 +919,7 @@ object SocialMediaExtractor {
             val catalog = client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return null
                 val html = response.body?.string().orEmpty()
-                parseFacebookHtml(html, canonicalUrl)
+                parseFacebookHtml(client, html, canonicalUrl)
             } ?: return null
 
             if (catalog.title == "Facebook" || catalog.title == "Facebook Video") {
@@ -901,7 +966,7 @@ object SocialMediaExtractor {
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) return@use
                     val html = response.body?.string().orEmpty()
-                    val catalog = parseFacebookHtml(html, url)
+                    val catalog = parseFacebookHtml(client, html, url)
                     if (catalog != null && catalog.videoFormats.isNotEmpty()) {
                         return catalog
                     }
@@ -928,7 +993,7 @@ object SocialMediaExtractor {
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) return@use
                     val html = response.body?.string().orEmpty()
-                    val catalog = parseFacebookHtml(html, originalUrl)
+                    val catalog = parseFacebookHtml(client, html, originalUrl)
                     if (catalog != null && catalog.videoFormats.isNotEmpty()) {
                         return catalog
                     }
@@ -949,14 +1014,14 @@ object SocialMediaExtractor {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return null
                 val html = response.body?.string().orEmpty()
-                parseFacebookHtml(html, url)
+                parseFacebookHtml(client, html, url)
             }
         } catch (_: Exception) {
             null
         }
     }
 
-    private fun parseFacebookHtml(html: String, sourceUrl: String): MediaFormatCatalog? {
+    private fun parseFacebookHtml(client: OkHttpClient, html: String, sourceUrl: String): MediaFormatCatalog? {
         val hdUrl = findFacebookStream(html, "hd_src")
             ?: findFacebookStream(html, "hd_src_no_ratelimit")
             ?: findFacebookStream(html, "browser_native_hd_url")
@@ -989,6 +1054,9 @@ object SocialMediaExtractor {
             "Referer" to "https://www.facebook.com/",
         )
 
+        val hdSize = validHd?.let { probeStreamSize(client, it, headers) }
+        val sdSize = validSd?.let { probeStreamSize(client, it, headers) }
+
         val videoFormats = mutableListOf<AvailableFormat>()
         if (!validHd.isNullOrBlank()) {
             videoFormats.add(
@@ -999,6 +1067,8 @@ object SocialMediaExtractor {
                     extension = "mp4",
                     height = 1080,
                     formatNote = "HD Quality (1080p)",
+                    estimatedSizeBytes = hdSize,
+                    sizeIsApproximate = hdSize == null,
                     isQuickPreset = false,
                     httpHeaders = headers,
                 )
@@ -1013,6 +1083,8 @@ object SocialMediaExtractor {
                     extension = "mp4",
                     height = 720,
                     formatNote = "SD Quality",
+                    estimatedSizeBytes = sdSize,
+                    sizeIsApproximate = sdSize == null,
                     isQuickPreset = false,
                     httpHeaders = headers,
                 )
@@ -1022,6 +1094,7 @@ object SocialMediaExtractor {
         if (videoFormats.isEmpty()) return null
 
         val primaryStreamUrl = (validHd ?: validSd)!!
+        val primarySize = hdSize ?: sdSize
         val audioFormats = listOf(
             AvailableFormat(
                 key = "fb-audio",
@@ -1029,6 +1102,8 @@ object SocialMediaExtractor {
                 formatId = primaryStreamUrl,
                 extension = "mp4",
                 formatNote = "Audio from video",
+                estimatedSizeBytes = primarySize,
+                sizeIsApproximate = primarySize == null,
                 isQuickPreset = false,
                 httpHeaders = headers,
             ),
@@ -1038,6 +1113,8 @@ object SocialMediaExtractor {
                 formatId = primaryStreamUrl,
                 extension = "mp4",
                 formatNote = "MP3 audio",
+                estimatedSizeBytes = primarySize,
+                sizeIsApproximate = primarySize == null,
                 isQuickPreset = false,
                 httpHeaders = headers,
             ),
@@ -1160,6 +1237,7 @@ object SocialMediaExtractor {
 
                 if (!videoUrl.isNullOrBlank()) {
                     val headers = mapOf("User-Agent" to USER_AGENT, "Referer" to "https://twitter.com/")
+                    val streamSize = probeStreamSize(client, videoUrl, headers)
                     val videoFormats = listOf(
                         AvailableFormat(
                             key = "tw-video",
@@ -1168,6 +1246,8 @@ object SocialMediaExtractor {
                             extension = "mp4",
                             height = videoHeight,
                             formatNote = "MP4 Video",
+                            estimatedSizeBytes = streamSize,
+                            sizeIsApproximate = streamSize == null,
                             isQuickPreset = false,
                             httpHeaders = headers,
                         )
@@ -1179,6 +1259,8 @@ object SocialMediaExtractor {
                             formatId = videoUrl,
                             extension = "mp4",
                             formatNote = "Audio",
+                            estimatedSizeBytes = streamSize,
+                            sizeIsApproximate = streamSize == null,
                             isQuickPreset = false,
                             httpHeaders = headers,
                         )
@@ -1225,6 +1307,7 @@ object SocialMediaExtractor {
                         ?: "X Post"
 
                     val headers = mapOf("User-Agent" to USER_AGENT, "Referer" to "https://twitter.com/")
+                    val streamSize = probeStreamSize(client, videoUrl, headers)
                     val videoFormats = listOf(
                         AvailableFormat(
                             key = "tw-og-video",
@@ -1233,6 +1316,8 @@ object SocialMediaExtractor {
                             extension = "mp4",
                             height = 1080,
                             formatNote = "MP4 Video",
+                            estimatedSizeBytes = streamSize,
+                            sizeIsApproximate = streamSize == null,
                             isQuickPreset = false,
                             httpHeaders = headers,
                         )
@@ -1244,6 +1329,8 @@ object SocialMediaExtractor {
                             formatId = videoUrl,
                             extension = "mp4",
                             formatNote = "Audio",
+                            estimatedSizeBytes = streamSize,
+                            sizeIsApproximate = streamSize == null,
                             isQuickPreset = false,
                             httpHeaders = headers,
                         )
@@ -1315,6 +1402,9 @@ object SocialMediaExtractor {
             }
 
             val headers = mapOf("User-Agent" to USER_AGENT)
+            val videoSize = probeStreamSize(client, fallbackUrl, headers)
+            val audioSize = companionAudio?.let { probeStreamSize(client, it, headers) }
+            val totalSize = if (videoSize != null && audioSize != null) videoSize + audioSize else (videoSize ?: audioSize)
 
             val videoFormats = listOf(
                 AvailableFormat(
@@ -1325,6 +1415,8 @@ object SocialMediaExtractor {
                     extension = "mp4",
                     height = height,
                     formatNote = if (companionAudio != null) "Full Video & Audio" else "Video (Muted)",
+                    estimatedSizeBytes = totalSize,
+                    sizeIsApproximate = totalSize == null,
                     isQuickPreset = false,
                     httpHeaders = headers,
                 )
@@ -1338,6 +1430,8 @@ object SocialMediaExtractor {
                         formatId = companionAudio,
                         extension = "mp4",
                         formatNote = "Original Audio",
+                        estimatedSizeBytes = audioSize,
+                        sizeIsApproximate = audioSize == null,
                         isQuickPreset = false,
                         httpHeaders = headers,
                     ),
@@ -1347,6 +1441,8 @@ object SocialMediaExtractor {
                         formatId = companionAudio,
                         extension = "mp4",
                         formatNote = "MP3 Audio",
+                        estimatedSizeBytes = audioSize,
+                        sizeIsApproximate = audioSize == null,
                         isQuickPreset = false,
                         httpHeaders = headers,
                     )

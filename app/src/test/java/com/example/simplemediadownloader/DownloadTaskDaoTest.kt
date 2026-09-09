@@ -199,6 +199,25 @@ class DownloadTaskDaoTest {
         Unit
     }
 
+    @Test
+    fun `http headers are persisted and restored across database conversions`() = runBlocking {
+        val testHeaders = mapOf(
+            "Cookie" to "ttwid=12345; sessionid=abcdef",
+            "User-Agent" to "CustomMobileUA",
+            "Referer" to "https://www.tiktok.com/",
+        )
+        val originalRecord = record("headers-id").copy(
+            format = record("headers-id").format.copy(httpHeaders = testHeaders),
+        )
+        val entity = originalRecord.toEntity()
+        dao.insert(entity)
+
+        val retrievedEntity = dao.get("headers-id")!!
+        val retrievedRecord = retrievedEntity.toRecord()
+
+        assertEquals(testHeaders, retrievedRecord.format.httpHeaders)
+    }
+
     private fun record(id: String) = DownloadRecord(
         taskId = id,
         sourceUrl = "https://example.test/video",

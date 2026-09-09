@@ -84,7 +84,7 @@ class OkHttpDownloadEngine(
             onState(DownloadState.Preparing(DownloadProgress(status = "Resolving stream…")))
 
             var resolvedTitle = request.title
-            val resolvedFormat = if (request.format.isQuickPreset || !request.format.formatId.startsWith("http")) {
+            var resolvedFormat = if (request.format.isQuickPreset || !request.format.formatId.startsWith("http")) {
                 val discovery = discoveryEngine?.discoverFormats(request.url)
                 if (discovery is FormatDiscoveryResult.Success) {
                     val discoveredTitle = discovery.catalog.title.takeIf {
@@ -118,6 +118,29 @@ class OkHttpDownloadEngine(
                 request.format
             }
 
+            // Fallback header resolution if format has no httpHeaders (e.g. from a legacy queued task or format without cookies)
+            if (resolvedFormat.httpHeaders.isNullOrEmpty()) {
+                val host = runCatching { java.net.URI(request.url).host.orEmpty().lowercase() }.getOrDefault("")
+                if (host.contains("tiktok") || host.contains("musical.ly") || host.contains("instagram")) {
+                    val discovery = discoveryEngine?.discoverFormats(request.url)
+                    if (discovery is FormatDiscoveryResult.Success) {
+                        val matching = if (resolvedFormat.mode == DownloadMode.VIDEO) {
+                            discovery.catalog.videoFormats.firstOrNull { it.key == resolvedFormat.key || it.height == resolvedFormat.height }
+                                ?: discovery.catalog.videoFormats.firstOrNull()
+                        } else {
+                            discovery.catalog.audioFormats.firstOrNull { it.key == resolvedFormat.key || it.mode == resolvedFormat.mode }
+                                ?: discovery.catalog.audioFormats.firstOrNull()
+                        }
+                        if (matching?.httpHeaders != null) {
+                            resolvedFormat = resolvedFormat.copy(
+                                httpHeaders = matching.httpHeaders,
+                                formatId = if (matching.formatId.isNotBlank()) matching.formatId else resolvedFormat.formatId,
+                            )
+                        }
+                    }
+                }
+            }
+
             val safeTitle = MediaExportPolicy.sanitizeDisplayName(resolvedTitle, resolvedFormat.extension)
                 .substringBeforeLast('.')
                 .take(120)
@@ -130,87 +153,119 @@ class OkHttpDownloadEngine(
                 File(outputDirectory, "$baseName.${resolvedFormat.extension}")
             }
 
-            if (!isMuxing) {
-                val transferKind = if (resolvedFormat.mode == DownloadMode.VIDEO) {
-                    DownloadTransferKind.VIDEO
-                } else {
-                    DownloadTransferKind.AUDIO
-                }
-                onState(
-                    DownloadState.Downloading(
-                        DownloadProgress(
-                            status = if (transferKind == DownloadTransferKind.VIDEO) {
-                                "Downloading video…"
-                            } else {
-                                "Downloading audio…"
-                            },
-                        ),
-                        transferKind,
-                    ),
-                )
-                downloadStream(
-                    taskId = request.id,
-                    url = resolvedFormat.formatId,
-                    destinationFile = finalFile,
-                    transferKind = transferKind,
-                    headers = resolvedFormat.httpHeaders,
-                    onState = onState,
-                )
-                onState(DownloadState.Saving(DownloadProgress(status = "Saving media file…")))
-            } else {
-                val tempVideoFile = File(outputDirectory, "$baseName-video.tmp")
-                val tempAudioFile = File(outputDirectory, "$baseName-audio.tmp")
+            var downloadAttempts = 0
+            while (downloadAttempts < 2) {
                 try {
-                    onState(
-                        DownloadState.Downloading(
-                            DownloadProgress(status = "Downloading video…"),
-                            DownloadTransferKind.VIDEO,
-                        ),
-                    )
-                    val videoJob = async(dispatchers.io) {
+                    if (!isMuxing) {
+                        val transferKind = if (resolvedFormat.mode == DownloadMode.VIDEO) {
+                            DownloadTransferKind.VIDEO
+                        } else {
+                            DownloadTransferKind.AUDIO
+                        }
+                        onState(
+                            DownloadState.Downloading(
+                                DownloadProgress(
+                                    status = if (transferKind == DownloadTransferKind.VIDEO) {
+                                        "Downloading video…"
+                                    } else {
+                                        "Downloading audio…"
+                                    },
+                                ),
+                                transferKind,
+                            ),
+                        )
                         downloadStream(
                             taskId = request.id,
                             url = resolvedFormat.formatId,
-                            destinationFile = tempVideoFile,
-                            transferKind = DownloadTransferKind.VIDEO,
+                            destinationFile = finalFile,
+                            transferKind = transferKind,
                             headers = resolvedFormat.httpHeaders,
                             onState = onState,
                         )
+                        onState(DownloadState.Saving(DownloadProgress(status = "Saving media file…")))
+                    } else {
+                        val tempVideoFile = File(outputDirectory, "$baseName-video.tmp")
+                        val tempAudioFile = File(outputDirectory, "$baseName-audio.tmp")
+                        try {
+                            onState(
+                                DownloadState.Downloading(
+                                    DownloadProgress(status = "Downloading video…"),
+                                    DownloadTransferKind.VIDEO,
+                                ),
+                            )
+                            val videoJob = async(dispatchers.io) {
+                                downloadStream(
+                                    taskId = request.id,
+                                    url = resolvedFormat.formatId,
+                                    destinationFile = tempVideoFile,
+                                    transferKind = DownloadTransferKind.VIDEO,
+                                    headers = resolvedFormat.httpHeaders,
+                                    onState = onState,
+                                )
+                            }
+
+                            onState(
+                                DownloadState.Downloading(
+                                    DownloadProgress(status = "Downloading audio…"),
+                                    DownloadTransferKind.AUDIO,
+                                ),
+                            )
+                            val audioJob = async(dispatchers.io) {
+                                downloadStream(
+                                    taskId = request.id,
+                                    url = requireNotNull(resolvedFormat.companionAudioFormatId),
+                                    destinationFile = tempAudioFile,
+                                    transferKind = DownloadTransferKind.AUDIO,
+                                    headers = resolvedFormat.httpHeaders,
+                                    onState = onState,
+                                )
+                            }
+
+                            videoJob.await()
+                            audioJob.await()
+
+                            onState(DownloadState.Merging(DownloadProgress(status = "Muxing video and audio…")))
+                            val muxSuccess = MediaStreamMuxer.mux(tempVideoFile, tempAudioFile, finalFile)
+                            if (!muxSuccess || !finalFile.exists() || finalFile.length() == 0L) {
+                                return@withContext DownloadExecutionResult.Failure(
+                                    message = "Could not merge the video and audio tracks.",
+                                    category = DownloadFailureCategory.CONVERTER_FAILURE,
+                                )
+                            }
+
+                            onState(DownloadState.Saving(DownloadProgress(status = "Saving media file…")))
+                        } finally {
+                            tempVideoFile.delete()
+                            tempAudioFile.delete()
+                        }
                     }
-
-                    onState(
-                        DownloadState.Downloading(
-                            DownloadProgress(status = "Downloading audio…"),
-                            DownloadTransferKind.AUDIO,
-                        ),
-                    )
-                    val audioJob = async(dispatchers.io) {
-                        downloadStream(
-                            taskId = request.id,
-                            url = requireNotNull(resolvedFormat.companionAudioFormatId),
-                            destinationFile = tempAudioFile,
-                            transferKind = DownloadTransferKind.AUDIO,
-                            headers = resolvedFormat.httpHeaders,
-                            onState = onState,
-                        )
+                    break
+                } catch (e: Exception) {
+                    if (downloadAttempts == 0 && !cancellationRequests.contains(request.id) &&
+                        e.message?.contains("403") == true && discoveryEngine != null
+                    ) {
+                        downloadAttempts++
+                        onState(DownloadState.Preparing(DownloadProgress(status = "Refreshing stream access…")))
+                        val freshDiscovery = discoveryEngine.discoverFormats(request.url)
+                        if (freshDiscovery is FormatDiscoveryResult.Success) {
+                            val freshMatching = if (resolvedFormat.mode == DownloadMode.VIDEO) {
+                                freshDiscovery.catalog.videoFormats.firstOrNull { it.key == resolvedFormat.key || it.height == resolvedFormat.height }
+                                    ?: freshDiscovery.catalog.videoFormats.firstOrNull()
+                            } else {
+                                freshDiscovery.catalog.audioFormats.firstOrNull { it.key == resolvedFormat.key || it.mode == resolvedFormat.mode }
+                                    ?: freshDiscovery.catalog.audioFormats.firstOrNull()
+                            }
+                            if (freshMatching != null && freshMatching.formatId.isNotBlank()) {
+                                resolvedFormat = resolvedFormat.copy(
+                                    formatId = freshMatching.formatId,
+                                    companionAudioFormatId = freshMatching.companionAudioFormatId ?: resolvedFormat.companionAudioFormatId,
+                                    httpHeaders = freshMatching.httpHeaders ?: resolvedFormat.httpHeaders,
+                                )
+                                continue
+                            }
+                        }
                     }
-
-                    videoJob.await()
-                    audioJob.await()
-
-                    onState(DownloadState.Merging(DownloadProgress(status = "Muxing video and audio…")))
-                    val muxSuccess = MediaStreamMuxer.mux(tempVideoFile, tempAudioFile, finalFile)
-                    if (!muxSuccess || !finalFile.exists() || finalFile.length() == 0L) {
-                        return@withContext DownloadExecutionResult.Failure(
-                            message = "Could not merge the video and audio tracks.",
-                            category = DownloadFailureCategory.CONVERTER_FAILURE,
-                        )
-                    }
-
-                    onState(DownloadState.Saving(DownloadProgress(status = "Saving media file…")))
-                } finally {
-                    tempVideoFile.delete()
-                    tempAudioFile.delete()
+                    throw e
                 }
             }
 
@@ -287,6 +342,7 @@ class OkHttpDownloadEngine(
             url = url,
             destinationFile = destinationFile,
             transferKind = transferKind,
+            knownTotalBytes = totalBytes,
             headers = headers,
             onState = onState,
         )
@@ -480,6 +536,7 @@ class OkHttpDownloadEngine(
         url: String,
         destinationFile: File,
         transferKind: DownloadTransferKind,
+        knownTotalBytes: Long? = null,
         headers: Map<String, String>? = null,
         onState: (DownloadState) -> Unit,
     ) {
@@ -504,7 +561,7 @@ class OkHttpDownloadEngine(
             }
 
             val body = response.body ?: throw java.io.IOException("Empty response body")
-            val totalBytes = body.contentLength().takeIf { it > 0 }
+            val totalBytes = body.contentLength().takeIf { it > 0 } ?: knownTotalBytes
             var downloadedBytes = 0L
             var lastUpdateAt = System.currentTimeMillis()
             var lastBytesAtUpdate = 0L

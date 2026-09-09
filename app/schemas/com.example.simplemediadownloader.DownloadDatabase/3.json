@@ -1,0 +1,257 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 3,
+    "identityHash": "c9838cabac4eeacb2d40d7c8934b1b09",
+    "entities": [
+      {
+        "tableName": "download_tasks",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`task_id` TEXT NOT NULL, `source_url` TEXT NOT NULL, `display_title` TEXT NOT NULL, `platform` TEXT NOT NULL, `format_key` TEXT NOT NULL, `format_id` TEXT NOT NULL, `companion_audio_format_id` TEXT, `download_mode` TEXT NOT NULL, `file_extension` TEXT NOT NULL, `width` INTEGER NOT NULL, `height` INTEGER NOT NULL, `fps` INTEGER NOT NULL, `bitrate_kbps` INTEGER NOT NULL, `codec` TEXT NOT NULL, `format_note` TEXT NOT NULL, `estimated_size_bytes` INTEGER, `size_is_approximate` INTEGER NOT NULL, `source_height` INTEGER NOT NULL, `requires_downscale` INTEGER NOT NULL, `is_quick_preset` INTEGER NOT NULL, `status` TEXT NOT NULL, `processing_stage` TEXT NOT NULL, `progress_percent` REAL, `downloaded_bytes` INTEGER, `total_bytes` INTEGER, `speed_bytes_per_second` INTEGER, `eta_seconds` INTEGER, `output_content_uri` TEXT, `output_mime_type` TEXT, `output_file_size_bytes` INTEGER, `output_display_name` TEXT, `created_at` INTEGER NOT NULL, `started_at` INTEGER, `completed_at` INTEGER, `failure_category` TEXT, `failure_message` TEXT, `technical_failure_detail` TEXT, `http_headers` TEXT, PRIMARY KEY(`task_id`))",
+        "fields": [
+          {
+            "fieldPath": "taskId",
+            "columnName": "task_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceUrl",
+            "columnName": "source_url",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayTitle",
+            "columnName": "display_title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "platform",
+            "columnName": "platform",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "formatKey",
+            "columnName": "format_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "formatId",
+            "columnName": "format_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "companionAudioFormatId",
+            "columnName": "companion_audio_format_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "downloadMode",
+            "columnName": "download_mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileExtension",
+            "columnName": "file_extension",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "width",
+            "columnName": "width",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "height",
+            "columnName": "height",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fps",
+            "columnName": "fps",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bitrateKbps",
+            "columnName": "bitrate_kbps",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "codec",
+            "columnName": "codec",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "formatNote",
+            "columnName": "format_note",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "estimatedSizeBytes",
+            "columnName": "estimated_size_bytes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sizeIsApproximate",
+            "columnName": "size_is_approximate",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceHeight",
+            "columnName": "source_height",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "requiresDownscale",
+            "columnName": "requires_downscale",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isQuickPreset",
+            "columnName": "is_quick_preset",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "processingStage",
+            "columnName": "processing_stage",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "progressPercent",
+            "columnName": "progress_percent",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "downloadedBytes",
+            "columnName": "downloaded_bytes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "totalBytes",
+            "columnName": "total_bytes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "speedBytesPerSecond",
+            "columnName": "speed_bytes_per_second",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "etaSeconds",
+            "columnName": "eta_seconds",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "outputContentUri",
+            "columnName": "output_content_uri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "outputMimeType",
+            "columnName": "output_mime_type",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "outputFileSizeBytes",
+            "columnName": "output_file_size_bytes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "outputDisplayName",
+            "columnName": "output_display_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAt",
+            "columnName": "started_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "completedAt",
+            "columnName": "completed_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "failureCategory",
+            "columnName": "failure_category",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "failureMessage",
+            "columnName": "failure_message",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "technicalFailureDetail",
+            "columnName": "technical_failure_detail",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "httpHeaders",
+            "columnName": "http_headers",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "task_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_download_tasks_status_created_at",
+            "unique": false,
+            "columnNames": [
+              "status",
+              "created_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_download_tasks_status_created_at` ON `${TABLE_NAME}` (`status`, `created_at`)"
+          },
+          {
+            "name": "index_download_tasks_completed_at",
+            "unique": false,
+            "columnNames": [
+              "completed_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_download_tasks_completed_at` ON `${TABLE_NAME}` (`completed_at`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c9838cabac4eeacb2d40d7c8934b1b09')"
+    ]
+  }
+}

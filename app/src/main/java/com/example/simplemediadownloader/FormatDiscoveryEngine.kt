@@ -179,6 +179,18 @@ class NewPipeFormatDiscoveryEngine(
         val width = raw.width.takeIf { it > 0 } ?: (height * 16 / 9)
         val extension = raw.format?.suffix ?: "mp4"
 
+        val videoClen = raw.content?.let { url ->
+            Regex("[?&]clen=(\\d+)").find(url)?.groupValues?.get(1)?.toLongOrNull()
+        }
+        val audioClen = companionAudio?.content?.let { url ->
+            Regex("[?&]clen=(\\d+)").find(url)?.groupValues?.get(1)?.toLongOrNull()
+        }
+        val totalBytes = if (videoClen != null && audioClen != null) {
+            videoClen + audioClen
+        } else {
+            videoClen ?: audioClen
+        }
+
         return AvailableFormat(
             key = "video:${raw.resolution.orEmpty()}:${raw.format?.name.orEmpty()}:${companionAudio?.format?.name.orEmpty()}",
             mode = DownloadMode.VIDEO,
@@ -191,8 +203,8 @@ class NewPipeFormatDiscoveryEngine(
             bitrateKbps = raw.bitrate.takeIf { it > 0 } ?: 0,
             codec = raw.codec.orEmpty(),
             formatNote = raw.quality ?: raw.resolution.orEmpty(),
-            estimatedSizeBytes = null,
-            sizeIsApproximate = true,
+            estimatedSizeBytes = totalBytes,
+            sizeIsApproximate = totalBytes == null,
         )
     }
 
@@ -209,6 +221,10 @@ class NewPipeFormatDiscoveryEngine(
         val bitrate = (raw.averageBitrate.takeIf { it > 0 } ?: 128).coerceIn(32, 320)
         val extension = if (mode == DownloadMode.AUDIO_MP3) "mp3" else (raw.format?.suffix ?: "m4a")
 
+        val audioClen = raw.content?.let { url ->
+            Regex("[?&]clen=(\\d+)").find(url)?.groupValues?.get(1)?.toLongOrNull()
+        }
+
         return AvailableFormat(
             key = "audio:${mode.name.lowercase()}:${raw.format?.name.orEmpty()}:$bitrate",
             mode = mode,
@@ -217,8 +233,8 @@ class NewPipeFormatDiscoveryEngine(
             bitrateKbps = bitrate,
             codec = raw.codec.orEmpty(),
             formatNote = raw.quality.orEmpty(),
-            estimatedSizeBytes = null,
-            sizeIsApproximate = true,
+            estimatedSizeBytes = audioClen,
+            sizeIsApproximate = audioClen == null,
         )
     }
 
