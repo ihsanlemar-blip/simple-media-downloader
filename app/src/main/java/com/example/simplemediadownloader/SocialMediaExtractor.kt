@@ -85,9 +85,15 @@ object SocialMediaExtractor {
             .followSslRedirects(true)
             .build()
 
+        val ua = if (initialUrl.contains("facebook.com") || initialUrl.contains("fb.watch")) {
+            CRAWLER_USER_AGENT
+        } else {
+            USER_AGENT
+        }
+
         val request = Request.Builder()
             .url(currentUrl)
-            .addHeader("User-Agent", USER_AGENT)
+            .addHeader("User-Agent", ua)
             .build()
 
         try {
@@ -576,30 +582,35 @@ object SocialMediaExtractor {
     // ==========================================
 
     private fun extractFacebook(client: OkHttpClient, url: String): FormatDiscoveryResult {
-        val videoId = extractFacebookId(url)
+        val resolvedUrl = if (url.contains("/share/") || url.contains("fb.watch")) {
+            followRedirects(client, url)
+        } else {
+            url
+        }
+        val videoId = extractFacebookId(resolvedUrl) ?: extractFacebookId(url)
 
         // Tier 1: Facebook Video Plugin Embed
-        val embedCatalog = tryFacebookPluginEmbed(client, url, videoId)
+        val embedCatalog = tryFacebookPluginEmbed(client, resolvedUrl, videoId)
         if (embedCatalog != null && embedCatalog.videoFormats.isNotEmpty()) {
             return FormatDiscoveryResult.Success(embedCatalog)
         }
 
         // Tier 2: Mobile Watch endpoint
         if (videoId != null) {
-            val watchCatalog = tryFacebookWatch(client, videoId, url)
+            val watchCatalog = tryFacebookWatch(client, videoId, resolvedUrl)
             if (watchCatalog != null && watchCatalog.videoFormats.isNotEmpty()) {
                 return FormatDiscoveryResult.Success(watchCatalog)
             }
         }
 
         // Tier 3: Crawler Impersonation
-        val crawlerCatalog = tryFacebookCrawler(client, url)
+        val crawlerCatalog = tryFacebookCrawler(client, resolvedUrl)
         if (crawlerCatalog != null && crawlerCatalog.videoFormats.isNotEmpty()) {
             return FormatDiscoveryResult.Success(crawlerCatalog)
         }
 
         // Tier 4: Direct web scraping
-        val webCatalog = tryFacebookWeb(client, url)
+        val webCatalog = tryFacebookWeb(client, resolvedUrl)
         if (webCatalog != null && webCatalog.videoFormats.isNotEmpty()) {
             return FormatDiscoveryResult.Success(webCatalog)
         }
@@ -629,7 +640,7 @@ object SocialMediaExtractor {
     private fun tryFacebookPluginEmbed(client: OkHttpClient, url: String, videoId: String?): MediaFormatCatalog? {
         val canonicalUrl = when {
             videoId != null && videoId.all { it.isDigit() } -> "https://www.facebook.com/reel/$videoId/"
-            url.contains("/share/") -> {
+            url.contains("/share/") || url.contains("fb.watch") -> {
                 val redirected = followRedirects(client, url)
                 val id = extractFacebookId(redirected)
                 if (id != null && id.all { it.isDigit() }) "https://www.facebook.com/reel/$id/" else redirected
