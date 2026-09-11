@@ -62,6 +62,8 @@ interface DownloadPreferenceStore {
     suspend fun setMaxConcurrentDownloads(limit: Int)
     val vaultViewMode: StateFlow<String>
     suspend fun setVaultViewMode(mode: String)
+    val allowThirdPartyGateways: StateFlow<Boolean>
+    suspend fun setAllowThirdPartyGateways(enabled: Boolean)
 }
 
 class SharedPreferencesDownloadPreferenceStore(
@@ -93,6 +95,11 @@ class SharedPreferencesDownloadPreferenceStore(
         preferences.getString(KEY_VAULT_VIEW_MODE, "grid") ?: "grid",
     )
     override val vaultViewMode: StateFlow<String> = _vaultViewMode.asStateFlow()
+
+    private val _allowThirdPartyGateways = MutableStateFlow(
+        preferences.getBoolean(KEY_ALLOW_THIRD_PARTY_GATEWAYS, false),
+    )
+    override val allowThirdPartyGateways: StateFlow<Boolean> = _allowThirdPartyGateways.asStateFlow()
 
     @SuppressLint("UseKtx") // commit() reports persistence failures; edit(commit = true) does not.
     override suspend fun setDefaultChoice(choice: DefaultDownloadChoice) {
@@ -155,6 +162,18 @@ class SharedPreferencesDownloadPreferenceStore(
         }
     }
 
+    @SuppressLint("UseKtx")
+    override suspend fun setAllowThirdPartyGateways(enabled: Boolean) {
+        withContext(dispatchers.io) {
+            check(
+                preferences.edit()
+                    .putBoolean(KEY_ALLOW_THIRD_PARTY_GATEWAYS, enabled)
+                    .commit(),
+            ) { "Could not save third-party gateways preference." }
+            _allowThirdPartyGateways.value = enabled
+        }
+    }
+
     companion object {
         internal const val PREFERENCES_NAME = "download_preferences"
         private const val KEY_DEFAULT_CHOICE = "default_download_choice"
@@ -162,6 +181,7 @@ class SharedPreferencesDownloadPreferenceStore(
         private const val KEY_WIFI_ONLY = "pref_wifi_only"
         private const val KEY_MAX_CONCURRENT = "pref_max_concurrent"
         private const val KEY_VAULT_VIEW_MODE = "pref_vault_view_mode"
+        private const val KEY_ALLOW_THIRD_PARTY_GATEWAYS = "pref_allow_third_party_gateways"
     }
 }
 

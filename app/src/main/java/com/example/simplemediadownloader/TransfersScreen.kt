@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -100,7 +101,7 @@ fun TransfersScreen(
                                 }
                             }
                             Text(
-                                text = "Transfer Engine",
+                                text = stringResource(R.string.transfer_engine_title),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
@@ -119,7 +120,7 @@ fun TransfersScreen(
                                     modifier = Modifier.size(16.dp),
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Cancel all", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.action_cancel_all), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -132,7 +133,7 @@ fun TransfersScreen(
                         // Current Aggregate Speed
                         Column {
                             Text(
-                                text = "Bandwidth",
+                                text = stringResource(R.string.stat_bandwidth),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -220,13 +221,13 @@ fun TransfersScreen(
                             }
                         }
                         Text(
-                            text = "No Active Transfers",
+                            text = stringResource(R.string.no_active_transfers_title),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
-                            text = "All downloads are finished or queued. Copy a video link and start a new transfer anytime.",
+                            text = stringResource(R.string.no_active_transfers_desc),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -245,7 +246,7 @@ fun TransfersScreen(
                                 modifier = Modifier.size(18.dp),
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Start New Download", fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.action_go_to_gateway), fontWeight = FontWeight.Bold)
                         }
                     }
                 }

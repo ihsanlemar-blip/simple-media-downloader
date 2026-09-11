@@ -38,6 +38,11 @@ internal object TechnicalFailureMapper {
                 DownloadFailureCategory.DRM_PROTECTED
             matches(
                 normalized,
+                "http error 403",
+                "http 403",
+                "403 forbidden",
+                "forbidden",
+                "access denied",
                 "private video",
                 "login required",
                 "sign in to confirm",

@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 
 @Database(
     entities = [DownloadTaskEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class DownloadDatabase : RoomDatabase() {
@@ -24,7 +24,6 @@ abstract class DownloadDatabase : RoomDatabase() {
                 DATABASE_NAME,
             )
                 .addMigrations(*DownloadDatabaseMigrations.ALL)
-                .fallbackToDestructiveMigration()
                 .build()
     }
 }
@@ -63,5 +62,13 @@ object DownloadDatabaseMigrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
+    val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE download_tasks ADD COLUMN canonical_url TEXT NOT NULL DEFAULT ''")
+            database.execSQL("UPDATE download_tasks SET canonical_url = source_url WHERE canonical_url = ''")
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_download_tasks_canonical_url ON download_tasks (canonical_url)")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
 }

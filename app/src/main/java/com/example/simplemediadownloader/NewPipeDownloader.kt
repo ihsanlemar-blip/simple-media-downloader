@@ -7,20 +7,24 @@ import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import java.io.IOException
-import java.util.concurrent.ConcurrentHashMap
 
 class OkHttpNewPipeDownloader(
-    val client: OkHttpClient = OkHttpClient.Builder().build(),
+    client: OkHttpClient = OkHttpClient.Builder().build(),
+    val cookieJar: ScopedCookieJar = ScopedCookieJar(),
 ) : Downloader() {
 
-    private val mCookies = ConcurrentHashMap<String, String>()
+    val client: OkHttpClient = client.newBuilder()
+        .cookieJar(cookieJar)
+        .dns(SafeDns())
+        .addInterceptor(SecurityInterceptor(allowCleartextHttp = true))
+        .build()
 
     fun setCookie(key: String, cookie: String) {
-        mCookies[key] = cookie
+        cookieJar.setCookie("https://www.youtube.com/", "$key=$cookie")
     }
 
     fun getCookies(url: String): String {
-        return mCookies.values.joinToString("; ")
+        return cookieJar.getCookiesForUrl(url)
     }
 
     @Throws(IOException::class, ReCaptchaException::class)
@@ -45,7 +49,7 @@ class OkHttpNewPipeDownloader(
             .addHeader("Accept-Language", "en-US,en;q=0.9")
 
         val cookies = getCookies(url)
-        if (cookies.isNotEmpty()) {
+        if (cookies.isNotEmpty() && request.headers()?.containsKey("Cookie") != true) {
             okHttpRequestBuilder.addHeader("Cookie", cookies)
         }
 
@@ -62,13 +66,9 @@ class OkHttpNewPipeDownloader(
             throw ReCaptchaException("reCaptcha Challenge requested", url)
         }
 
-        // Keep session / consent cookies for subsequent calls
+        // Keep session / consent cookies for subsequent calls matching this destination
         okHttpResponse.headers("Set-Cookie").forEach { cookieHeader ->
-            val cookiePart = cookieHeader.substringBefore(';')
-            val key = cookiePart.substringBefore('=', "")
-            if (key.isNotBlank()) {
-                mCookies[key] = cookiePart
-            }
+            cookieJar.setCookie(url, cookieHeader)
         }
 
         val responseBody = okHttpResponse.body?.string().orEmpty()

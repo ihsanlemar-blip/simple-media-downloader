@@ -25,6 +25,22 @@ class RoomDownloadHistoryStore(
         check(dao.update(record.toEntity()) == 1) { "Download task ${record.taskId} no longer exists." }
     }
 
+    override suspend fun updateProgress(
+        taskId: String,
+        stage: DownloadProcessingStage,
+        progress: DownloadProgress,
+    ): Boolean = withContext(dispatchers.io) {
+        dao.updateProgress(
+            taskId = taskId,
+            stage = stage.name,
+            progressPercent = progress.percentage,
+            downloadedBytes = progress.downloadedBytes,
+            totalBytes = progress.totalBytes,
+            speedBytesPerSecond = progress.speedBytesPerSecond,
+            etaSeconds = progress.etaSeconds,
+        ) > 0
+    }
+
     override suspend fun get(taskId: String): DownloadRecord? = withContext(dispatchers.io) {
         dao.get(taskId)?.toRecord()
     }
@@ -67,5 +83,16 @@ class RoomDownloadHistoryStore(
 
     override suspend fun clearCompletedHistory(): Int = withContext(dispatchers.io) {
         dao.clearCompletedHistory()
+    }
+
+    override fun searchHistory(query: String): Flow<List<DownloadRecord>> =
+        dao.searchHistory(query).map { tasks -> tasks.map(DownloadTaskEntity::toRecord) }
+
+    override suspend fun getHistoricalTasks(limit: Int, offset: Int): List<DownloadRecord> = withContext(dispatchers.io) {
+        dao.getHistoricalTasks(limit, offset).map(DownloadTaskEntity::toRecord)
+    }
+
+    override suspend fun searchHistoryPaged(query: String, limit: Int, offset: Int): List<DownloadRecord> = withContext(dispatchers.io) {
+        dao.searchHistoryPaged(query, limit, offset).map(DownloadTaskEntity::toRecord)
     }
 }

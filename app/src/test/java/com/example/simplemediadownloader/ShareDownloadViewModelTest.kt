@@ -216,12 +216,15 @@ class ShareDownloadViewModelTest {
             MutableStateFlow(3)
         override val vaultViewMode: StateFlow<String> =
             MutableStateFlow("grid")
+        override val allowThirdPartyGateways: StateFlow<Boolean> =
+            MutableStateFlow(false)
 
         override suspend fun setDefaultChoice(choice: DefaultDownloadChoice) = Unit
         override suspend fun setThemeMode(mode: AppThemeMode) = Unit
         override suspend fun setWifiOnly(enabled: Boolean) = Unit
         override suspend fun setMaxConcurrentDownloads(limit: Int) = Unit
         override suspend fun setVaultViewMode(mode: String) = Unit
+        override suspend fun setAllowThirdPartyGateways(enabled: Boolean) = Unit
     }
 
     private class FakeShareGateway : ShareDownloadGateway {

@@ -72,7 +72,10 @@ fun interface DownloadServiceStarter {
 
 class AndroidDownloadServiceStarter : DownloadServiceStarter {
     override fun start(context: Context, taskId: String) {
-        DownloadService.enqueue(context, taskId)
+        val concurrency = (context.applicationContext as? SimpleMediaDownloaderApp)
+            ?.downloadPreferenceStore?.maxConcurrentDownloads?.value
+            ?: DownloadQueueScheduler.DEFAULT_CONCURRENCY
+        DownloadService.enqueue(context, taskId, concurrency)
     }
 }
 

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Wifi
@@ -46,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,6 +58,7 @@ fun SettingsScreen(
     onThemeSelect: (AppThemeMode) -> Unit,
     onDefaultChoiceSelect: (DefaultDownloadChoice) -> Unit,
     onWifiOnlyToggle: (Boolean) -> Unit,
+    onAllowThirdPartyGatewaysToggle: (Boolean) -> Unit,
     onMaxConcurrentSelect: (Int) -> Unit,
     onClearCache: () -> Unit,
     onRetryEngine: () -> Unit,
@@ -73,7 +76,7 @@ fun SettingsScreen(
         // Section: Appearance & Theme
         item(key = "appearance_section") {
             SettingsCard(
-                title = "Appearance & Palette",
+                title = stringResource(R.string.settings_section_theme),
                 icon = Icons.Rounded.Palette,
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -125,7 +128,7 @@ fun SettingsScreen(
         // Section: Default Quality Action
         item(key = "default_choice_section") {
             SettingsCard(
-                title = "Default Quality Action",
+                title = stringResource(R.string.settings_default_choice_label),
                 icon = Icons.Rounded.Tune,
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -166,7 +169,7 @@ fun SettingsScreen(
         // Section: Network & Performance
         item(key = "network_section") {
             SettingsCard(
-                title = "Network & Concurrency",
+                title = stringResource(R.string.settings_section_network),
                 icon = Icons.Rounded.Wifi,
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -177,9 +180,9 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Download over Wi-Fi only", fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.settings_wifi_only_label), fontWeight = FontWeight.SemiBold)
                             Text(
-                                "Prevent cellular data usage during large video downloads",
+                                stringResource(R.string.settings_wifi_only_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -198,7 +201,7 @@ fun SettingsScreen(
                     // Concurrency limit selector
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "Parallel Streams Limit",
+                            text = stringResource(R.string.settings_concurrency_label),
                             fontWeight = FontWeight.SemiBold,
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -210,7 +213,7 @@ fun SettingsScreen(
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         onMaxConcurrentSelect(limit)
                                     },
-                                    label = { Text("$limit Streams") },
+                                    label = { Text(stringResource(R.string.settings_streams_format, limit)) },
                                     shape = RoundedCornerShape(10.dp),
                                     colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -223,10 +226,44 @@ fun SettingsScreen(
             }
         }
 
+        // Section: Privacy & External Services
+        item(key = "privacy_section") {
+            SettingsCard(
+                title = stringResource(R.string.settings_section_privacy),
+                icon = Icons.Rounded.Security,
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(stringResource(R.string.settings_allow_gateways_label), fontWeight = FontWeight.SemiBold)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                stringResource(R.string.settings_allow_gateways_desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Switch(
+                            checked = state.allowThirdPartyGateways,
+                            onCheckedChange = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onAllowThirdPartyGatewaysToggle(it)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
         // Section: Storage & Diagnostics
         item(key = "storage_diagnostics_section") {
             SettingsCard(
-                title = "Storage & Engine Diagnostics",
+                title = stringResource(R.string.settings_section_storage),
                 icon = Icons.Rounded.CleaningServices,
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -236,9 +273,9 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Temporary Cache", fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.settings_cache_label), fontWeight = FontWeight.SemiBold)
                             Text(
-                                "Clear cached format probing responses and temporary chunks",
+                                stringResource(R.string.settings_cache_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -250,7 +287,7 @@ fun SettingsScreen(
                             },
                             shape = RoundedCornerShape(12.dp),
                         ) {
-                            Text("Clean")
+                            Text(stringResource(R.string.action_clean))
                         }
                     }
 
@@ -262,16 +299,16 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Engine Status", fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.settings_engine_status_label), fontWeight = FontWeight.SemiBold)
                             Text(
-                                if (state.backend.ready) "Ready (Multi-tier extractors active)" else "Engine initializing or degraded",
+                                if (state.backend.ready) stringResource(R.string.settings_engine_ready) else stringResource(R.string.settings_engine_degraded),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (state.backend.ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                             )
                         }
                         if (!state.backend.ready) {
                             Button(onClick = onRetryEngine, shape = RoundedCornerShape(12.dp)) {
-                                Text("Retry")
+                                Text(stringResource(R.string.action_retry))
                             }
                         }
                     }
@@ -307,12 +344,16 @@ fun SettingsScreen(
                     }
                     Column {
                         Text(
-                            "Simple Media Downloader",
+                            stringResource(R.string.app_name),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                         )
                         Text(
-                            "Version 2.5.0 • Flagship Multi-Platform Edition",
+                            stringResource(
+                                R.string.settings_app_version_format,
+                                BuildConfig.VERSION_NAME,
+                                BuildConfig.VERSION_CODE,
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

@@ -44,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -158,7 +159,7 @@ internal fun ShareDownloadContent(
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
-                    "Download shared media",
+                    stringResource(R.string.share_dialog_heading),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                 )
@@ -177,7 +178,7 @@ internal fun ShareDownloadContent(
                         modifier = Modifier.testTag("share_platform"),
                     )
                     Text(
-                        state.displayUrl.ifBlank { "No usable URL detected" },
+                        state.displayUrl.ifBlank { stringResource(R.string.share_no_url) },
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.bodySmall,
@@ -202,9 +203,9 @@ internal fun ShareDownloadContent(
                             CircularProgressIndicator(strokeWidth = 2.dp)
                             Text(
                                 if (state.enginePreparing) {
-                                    "Preparing download engine…"
+                                    stringResource(R.string.share_preparing_engine)
                                 } else {
-                                    "Inspecting available formats…"
+                                    stringResource(R.string.share_inspecting_formats)
                                 },
                                 style = MaterialTheme.typography.bodyMedium,
                             )
@@ -224,7 +225,7 @@ internal fun ShareDownloadContent(
                                     modifier = Modifier.testTag("share_error"),
                                 )
                                 if (!state.engineReady && !state.enginePreparing && state.sourceUrl != null) {
-                                    TextButton(onClick = onRetryEngine) { Text("Retry engine") }
+                                    TextButton(onClick = onRetryEngine) { Text(stringResource(R.string.action_retry_engine)) }
                                 }
                             }
                         }
@@ -238,7 +239,7 @@ internal fun ShareDownloadContent(
                                 onClick = {
                                     catalog.videoFormats.firstOrNull()?.let { onSelectFormat(it.key) }
                                 },
-                                label = { Text("Video") },
+                                label = { Text(stringResource(R.string.filter_video)) },
                             )
                             FilterChip(
                                 selected = selectedMode != DownloadMode.VIDEO,
@@ -246,7 +247,7 @@ internal fun ShareDownloadContent(
                                 onClick = {
                                     catalog.audioFormats.firstOrNull()?.let { onSelectFormat(it.key) }
                                 },
-                                label = { Text("Audio") },
+                                label = { Text(stringResource(R.string.filter_audio)) },
                             )
                         }
 
@@ -264,9 +265,9 @@ internal fun ShareDownloadContent(
                             ) {
                                 Text(
                                     if (state.advancedFormatsVisible) {
-                                        "Hide advanced formats"
+                                        stringResource(R.string.hide_advanced_formats)
                                     } else {
-                                        "Advanced formats (${advancedFormats.size})"
+                                        stringResource(R.string.advanced_formats_count, advancedFormats.size)
                                     },
                                 )
                             }
@@ -284,7 +285,7 @@ internal fun ShareDownloadContent(
                         state.selectedFormat?.let { selected ->
                             HorizontalDivider()
                             Text(
-                                "Selected size: ${formatSizeLabel(selected)}",
+                                stringResource(R.string.share_selected_size, formatSizeLabel(selected)),
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.testTag("share_selected_size"),
@@ -303,7 +304,7 @@ internal fun ShareDownloadContent(
                         onClick = onCancel,
                         enabled = !state.enqueueing,
                         modifier = Modifier.testTag("share_cancel"),
-                    ) { Text("Cancel") }
+                    ) { Text(stringResource(R.string.action_cancel)) }
                     Button(
                         onClick = onDownload,
                         enabled = state.canDownload,
@@ -311,9 +312,9 @@ internal fun ShareDownloadContent(
                     ) {
                         Text(
                             if (state.enqueueing || state.awaitingNotificationPermission) {
-                                "Starting…"
+                                stringResource(R.string.action_starting)
                             } else {
-                                "Download"
+                                stringResource(R.string.action_download)
                             },
                         )
                     }
@@ -354,19 +355,13 @@ internal fun commonShareFormats(
 ): List<AvailableFormat> {
     if (formats.isEmpty()) return emptyList()
     return if (selectedMode == DownloadMode.VIDEO) {
-        val commonHeights = setOf(1080, 720, 480)
+        val commonHeights = setOf(2160, 1440, 1080, 720, 540, 480, 360, 240, 144)
         buildList {
             add(formats.first())
             formats.filterTo(this) { it.height in commonHeights }
         }.distinctBy(AvailableFormat::key)
     } else {
-        buildList {
-            formats.firstOrNull { it.mode == DownloadMode.AUDIO_ORIGINAL }?.let(::add)
-            formats.filter { it.mode == DownloadMode.AUDIO_MP3 }
-                .minByOrNull { kotlin.math.abs(it.bitrateKbps - 192) }
-                ?.let(::add)
-            if (isEmpty()) add(formats.first())
-        }.distinctBy(AvailableFormat::key)
+        formats.distinctBy(AvailableFormat::key)
     }
 }
 

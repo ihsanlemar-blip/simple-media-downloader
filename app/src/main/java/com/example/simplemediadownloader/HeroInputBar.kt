@@ -53,6 +53,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -155,7 +156,7 @@ fun HeroInputBar(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 Text(
-                                    "Paste link from clipboard",
+                                    stringResource(R.string.paste_link_from_clipboard),
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -191,7 +192,7 @@ fun HeroInputBar(
                         modifier = Modifier.size(18.dp),
                     )
                     Text(
-                        text = "Media URL",
+                        text = stringResource(R.string.media_url_label),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -202,7 +203,7 @@ fun HeroInputBar(
                     PlatformBadge(detectedPlatform)
                 } else {
                     Text(
-                        text = "Supports 6+ platforms",
+                        text = stringResource(R.string.supports_platforms),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -216,7 +217,7 @@ fun HeroInputBar(
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = {
                     Text(
-                        "Paste TikTok, Instagram, Facebook, YouTube, X…",
+                        stringResource(R.string.url_input_placeholder),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     )
@@ -232,7 +233,7 @@ fun HeroInputBar(
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.Clear,
-                                    contentDescription = "Clear input",
+                                    contentDescription = stringResource(R.string.clear_input),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(20.dp),
                                 )
@@ -246,7 +247,7 @@ fun HeroInputBar(
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.ContentPaste,
-                                    contentDescription = "Paste from clipboard",
+                                    contentDescription = stringResource(R.string.paste_from_clipboard),
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp),
                                 )
@@ -329,7 +330,7 @@ fun HeroInputBar(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Formats",
+                        text = stringResource(R.string.action_explore_formats),
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 14.sp,
                     )

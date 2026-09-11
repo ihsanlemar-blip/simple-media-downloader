@@ -12,12 +12,19 @@ interface FormatDiscoveryEngine {
     fun fastVideoPreset(): AvailableFormat
     fun cachedFormatCatalog(url: String): MediaFormatCatalog? = null
     suspend fun discoverFormats(url: String): FormatDiscoveryResult
+    fun clearCache() {}
+    fun invalidate(url: String) {}
+    suspend fun refreshFormats(url: String): FormatDiscoveryResult {
+        invalidate(url)
+        return discoverFormats(url)
+    }
 }
 
 typealias YtDlpFormatDiscoveryEngine = NewPipeFormatDiscoveryEngine
 
 class NewPipeFormatDiscoveryEngine(
     private val dispatchers: AppDispatchers = AppDispatchers(),
+    private val preferenceStore: DownloadPreferenceStore? = null,
 ) : FormatDiscoveryEngine {
     override fun quickFormatCatalog(url: String): MediaFormatCatalog = MediaFormatCatalog(
         sourceUrl = url,
@@ -65,13 +72,24 @@ class NewPipeFormatDiscoveryEngine(
         isQuickPreset = true,
     )
 
-    private val okHttpClient = OkHttpClient.Builder().build()
+    private val cookieJar = ScopedCookieJar()
+    private val okHttpClient = OkHttpClient.Builder()
+        .cookieJar(cookieJar)
+        .dns(SafeDns())
+        .addInterceptor(SecurityInterceptor(allowCleartextHttp = true))
+        .build()
 
     override suspend fun discoverFormats(url: String): FormatDiscoveryResult =
         withContext(dispatchers.io) {
             val platform = PlatformResolver.fromUrl(url)
+            val allowGateways = preferenceStore?.allowThirdPartyGateways?.value ?: false
             if (platform in listOf("Facebook", "TikTok", "Instagram", "X", "Reddit")) {
-                return@withContext SocialMediaExtractor.extract(okHttpClient, url, platform)
+                return@withContext SocialMediaExtractor.extract(
+                    client = okHttpClient,
+                    url = url,
+                    platform = platform,
+                    allowThirdPartyGateways = allowGateways,
+                )
             }
 
             try {
@@ -95,6 +113,7 @@ class NewPipeFormatDiscoveryEngine(
         }
 
     private fun createCatalog(url: String, extractor: StreamExtractor): MediaFormatCatalog {
+        val durationSeconds = runCatching { extractor.length }.getOrDefault(0L).coerceAtLeast(0L)
         val audioStreams = extractor.audioStreams.orEmpty()
         val preferredAudio = audioStreams.maxWithOrNull(
             compareBy<AudioStream>(
@@ -104,10 +123,10 @@ class NewPipeFormatDiscoveryEngine(
         )
 
         val progressiveVideos = extractor.videoStreams.orEmpty()
-            .map { raw -> videoOption(raw, companionAudio = null) }
+            .map { raw -> videoOption(raw, companionAudio = null, durationSeconds = durationSeconds) }
 
         val adaptiveVideos = extractor.videoOnlyStreams.orEmpty()
-            .map { raw -> videoOption(raw, companionAudio = preferredAudio) }
+            .map { raw -> videoOption(raw, companionAudio = preferredAudio, durationSeconds = durationSeconds) }
 
         val allVideos = (progressiveVideos + adaptiveVideos)
             .distinctBy(AvailableFormat::key)
@@ -121,15 +140,28 @@ class NewPipeFormatDiscoveryEngine(
             )
         val videoFormats = buildResolutionLadder(allVideos)
 
-        val audioFormats = audioStreams
-            .flatMap { raw ->
-                listOf(
-                    audioOption(raw, DownloadMode.AUDIO_ORIGINAL),
-                    audioOption(raw, DownloadMode.AUDIO_MP3),
+        val originalAudioFormats = audioStreams
+            .map { raw ->
+                audioOption(raw, DownloadMode.AUDIO_ORIGINAL, durationSeconds)
+            }
+
+        val mp3AudioFormats = listOf(64, 128, 192, 320).mapNotNull { targetBitrate ->
+            val closestStream = audioStreams.minByOrNull { kotlin.math.abs(it.averageBitrate - targetBitrate) }
+                ?: audioStreams.firstOrNull()
+            closestStream?.let { raw ->
+                val nativeExt = raw.format?.suffix?.lowercase() ?: "m4a"
+                audioOption(raw, DownloadMode.AUDIO_MP3, durationSeconds).copy(
+                    key = "audio:mp3:$targetBitrate",
+                    extension = nativeExt,
+                    bitrateKbps = targetBitrate,
+                    formatNote = if (targetBitrate <= 64) "Data Saver Audio" else "${targetBitrate} kbps Audio",
                 )
             }
+        }
+
+        val audioFormats = (originalAudioFormats + mp3AudioFormats)
             .distinctBy {
-                listOf(it.mode, it.bitrateKbps, it.codec, it.extension, it.estimatedSizeBytes)
+                listOf(it.mode, it.bitrateKbps, it.codec, it.extension)
             }
             .sortedWith(
                 compareBy<AvailableFormat> { it.mode.ordinal }
@@ -173,22 +205,39 @@ class NewPipeFormatDiscoveryEngine(
     private fun videoOption(
         raw: VideoStream,
         companionAudio: AudioStream?,
+        durationSeconds: Long = 0L,
     ): AvailableFormat {
         val companionId = companionAudio?.content
         val height = raw.height.takeIf { it > 0 } ?: parseHeight(raw.resolution)
         val width = raw.width.takeIf { it > 0 } ?: (height * 16 / 9)
         val extension = raw.format?.suffix ?: "mp4"
 
-        val videoClen = raw.content?.let { url ->
+        var videoClen = raw.content?.let { url ->
             Regex("[?&]clen=(\\d+)").find(url)?.groupValues?.get(1)?.toLongOrNull()
         }
-        val audioClen = companionAudio?.content?.let { url ->
+        if (videoClen == null && durationSeconds > 0 && raw.bitrate > 0) {
+            videoClen = (raw.bitrate.toLong() * durationSeconds / 8L)
+        }
+
+        var audioClen = companionAudio?.content?.let { url ->
             Regex("[?&]clen=(\\d+)").find(url)?.groupValues?.get(1)?.toLongOrNull()
         }
+        if (audioClen == null && durationSeconds > 0 && (companionAudio?.averageBitrate ?: 0) > 0) {
+            audioClen = (companionAudio!!.averageBitrate.toLong() * 1000L * durationSeconds / 8L)
+        }
+
         val totalBytes = if (videoClen != null && audioClen != null) {
             videoClen + audioClen
         } else {
             videoClen ?: audioClen
+        }
+
+        val note = when {
+            height >= 1080 -> "${height}p Full HD"
+            height >= 720 -> "${height}p HD"
+            height in 480..540 -> "${height}p SD"
+            height in 1..360 -> "${height}p (Data Saver)"
+            else -> raw.quality ?: raw.resolution.orEmpty()
         }
 
         return AvailableFormat(
@@ -202,9 +251,9 @@ class NewPipeFormatDiscoveryEngine(
             fps = raw.fps.takeIf { it > 0 } ?: 30,
             bitrateKbps = raw.bitrate.takeIf { it > 0 } ?: 0,
             codec = raw.codec.orEmpty(),
-            formatNote = raw.quality ?: raw.resolution.orEmpty(),
+            formatNote = note,
             estimatedSizeBytes = totalBytes,
-            sizeIsApproximate = totalBytes == null,
+            sizeIsApproximate = raw.content?.contains("clen=") != true,
         )
     }
 
@@ -217,12 +266,22 @@ class NewPipeFormatDiscoveryEngine(
     private fun audioOption(
         raw: AudioStream,
         mode: DownloadMode,
+        durationSeconds: Long = 0L,
     ): AvailableFormat {
         val bitrate = (raw.averageBitrate.takeIf { it > 0 } ?: 128).coerceIn(32, 320)
-        val extension = if (mode == DownloadMode.AUDIO_MP3) "mp3" else (raw.format?.suffix ?: "m4a")
+        val extension = raw.format?.suffix ?: "m4a"
 
         val audioClen = raw.content?.let { url ->
             Regex("[?&]clen=(\\d+)").find(url)?.groupValues?.get(1)?.toLongOrNull()
+        }
+        val estimatedSize = audioClen ?: if (durationSeconds > 0 && bitrate > 0) {
+            (bitrate.toLong() * 1000L * durationSeconds / 8L)
+        } else null
+
+        val note = when {
+            bitrate <= 64 -> "Data Saver (${bitrate} kbps)"
+            bitrate <= 128 -> "Standard (${bitrate} kbps)"
+            else -> "High Quality (${bitrate} kbps)"
         }
 
         return AvailableFormat(
@@ -232,8 +291,8 @@ class NewPipeFormatDiscoveryEngine(
             extension = extension,
             bitrateKbps = bitrate,
             codec = raw.codec.orEmpty(),
-            formatNote = raw.quality.orEmpty(),
-            estimatedSizeBytes = audioClen,
+            formatNote = note,
+            estimatedSizeBytes = estimatedSize,
             sizeIsApproximate = audioClen == null,
         )
     }

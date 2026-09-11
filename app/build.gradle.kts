@@ -19,8 +19,8 @@ android {
         applicationId = "com.example.simplemediadownloader"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 250
+        versionName = "2.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -58,8 +58,23 @@ android {
         jvmTarget = "17"
     }
 
+    sourceSets {
+        getByName("debug") {
+            assets.srcDirs(files("$projectDir/schemas"))
+        }
+        getByName("test") {
+            assets.srcDirs(files("$projectDir/schemas"))
+        }
+    }
+
     testOptions {
         unitTests.isIncludeAndroidResources = true
+    }
+
+    lint {
+        ignoreTestSources = true
+        abortOnError = true
+        checkReleaseBuilds = false
     }
 }
 

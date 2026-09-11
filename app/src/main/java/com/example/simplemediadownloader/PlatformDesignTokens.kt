@@ -165,3 +165,10 @@ private fun Color.isDark(): Boolean {
     val luminance = 0.299 * red + 0.587 * green + 0.114 * blue
     return luminance < 0.5
 }
+
+enum class DateGroup(val stringRes: Int) {
+    TODAY(R.string.date_group_today),
+    YESTERDAY(R.string.date_group_yesterday),
+    THIS_WEEK(R.string.date_group_this_week),
+    OLDER(R.string.date_group_older),
+}

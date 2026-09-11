@@ -62,6 +62,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -167,7 +168,7 @@ fun FormatPickerBottomSheet(
                                         .data(catalog.thumbnailUrl)
                                         .crossfade(true)
                                         .build(),
-                                    contentDescription = "Media preview thumbnail",
+                                    contentDescription = stringResource(R.string.format_preview_thumbnail),
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
@@ -242,7 +243,7 @@ fun FormatPickerBottomSheet(
                             modifier = Modifier.size(16.dp),
                         )
                     },
-                    label = { Text("Video (${catalog.videoFormats.size})", fontWeight = FontWeight.SemiBold) },
+                    label = { Text(stringResource(R.string.mode_video_count, catalog.videoFormats.size), fontWeight = FontWeight.SemiBold) },
                     shape = RoundedCornerShape(12.dp),
                 )
                 FilterChip(
@@ -259,7 +260,7 @@ fun FormatPickerBottomSheet(
                             modifier = Modifier.size(16.dp),
                         )
                     },
-                    label = { Text("Original Audio", fontWeight = FontWeight.SemiBold) },
+                    label = { Text(stringResource(R.string.mode_audio_original), fontWeight = FontWeight.SemiBold) },
                     shape = RoundedCornerShape(12.dp),
                 )
                 FilterChip(
@@ -276,7 +277,7 @@ fun FormatPickerBottomSheet(
                             modifier = Modifier.size(16.dp),
                         )
                     },
-                    label = { Text("MP3", fontWeight = FontWeight.SemiBold) },
+                    label = { Text(stringResource(R.string.mode_audio_mp3_chip), fontWeight = FontWeight.SemiBold) },
                     shape = RoundedCornerShape(12.dp),
                 )
             }
@@ -288,7 +289,7 @@ fun FormatPickerBottomSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = if (mode == DownloadMode.VIDEO) "Choose Resolution" else "Choose Quality",
+                    text = if (mode == DownloadMode.VIDEO) stringResource(R.string.choose_resolution) else stringResource(R.string.choose_quality),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                 )
@@ -308,7 +309,11 @@ fun FormatPickerBottomSheet(
                     },
                     label = {
                         Text(
-                            text = if (advancedMode) "All Streams (${formats.size})" else "Recommended",
+                            text = if (advancedMode) {
+                                stringResource(R.string.format_all_streams, formats.size)
+                            } else {
+                                stringResource(R.string.format_recommended)
+                            },
                             style = MaterialTheme.typography.labelSmall,
                         )
                     },
@@ -424,12 +429,31 @@ fun FormatRadioCard(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    if (format.isDataSaver) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFF2E7D32).copy(alpha = 0.15f),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.data_saver_badge),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF2E7D32),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                }
                 Text(
                     text = details,
                     style = MaterialTheme.typography.bodySmall.copy(
@@ -447,7 +471,7 @@ fun FormatRadioCard(
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Rounded.Download,
-                        contentDescription = "Select format",
+                        contentDescription = stringResource(R.string.action_select_format),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(16.dp),
                     )

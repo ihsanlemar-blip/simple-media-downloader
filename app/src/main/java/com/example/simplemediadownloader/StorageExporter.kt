@@ -20,7 +20,10 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.util.Locale
 
-data class ExportDestination(val directory: File)
+data class ExportDestination(
+    val directory: File,
+    val taskId: String = "",
+)
 
 interface StorageExporter {
     suspend fun prepareDestination(request: DownloadRequest): Result<ExportDestination>
@@ -38,12 +41,14 @@ interface StorageExporter {
     suspend fun deleteOutput(output: DownloadOutput): Boolean = false
 
     suspend fun cleanupAbandonedExports(): Int = 0
+
+    suspend fun clearDisposableCache(): Long = 0L
 }
 
 internal class DownloadsStorageExporter(
-    context: Context,
+    private val context: Context,
     private val dispatchers: AppDispatchers = AppDispatchers(),
-    private val workspaceRoot: File = File(context.cacheDir, WORKING_FOLDER),
+    private val workspaceRoot: File = context.cacheDir.resolve(WORKING_FOLDER),
     private val mediaStoreWriter: MediaStoreWriter = ContentResolverMediaStoreWriter(
         context.contentResolver,
     ),
@@ -51,6 +56,13 @@ internal class DownloadsStorageExporter(
         StatFs(context.cacheDir.absolutePath).availableBytes
     },
 ) : StorageExporter {
+    private val activeWorkspacesMutex = Mutex()
+    private val activeTaskIds = mutableSetOf<String>()
+
+    internal suspend fun isTaskActive(taskId: String): Boolean = activeWorkspacesMutex.withLock {
+        activeTaskIds.contains(taskId)
+    }
+
     override suspend fun prepareDestination(
         request: DownloadRequest,
     ): Result<ExportDestination> = withContext(dispatchers.io) {
@@ -61,22 +73,27 @@ internal class DownloadsStorageExporter(
             val directory = taskDirectory(request.id)
             deleteWorkspace(directory, requireSuccess = true)
 
-            request.format.estimatedSizeBytes
-                ?.takeIf { it > 0L }
-                ?.let { estimate ->
-                    val required = StorageCapacityPolicy.requiredBytes(
-                        estimatedMediaBytes = estimate,
-                        requiresProcessing = request.format.requiresFfmpeg,
-                    )
-                    val available = availableBytes()
-                    check(available >= required) {
-                        "Not enough available storage. This download needs about " +
-                            "${StorageCapacityPolicy.formatBytes(required)} free."
-                    }
-                }
+            val estimate = request.format.estimatedSizeBytes?.takeIf { it > 0L }
+            val required = if (estimate != null) {
+                StorageCapacityPolicy.requiredBytes(
+                    estimatedMediaBytes = estimate,
+                    requiresProcessing = request.format.requiresFfmpeg,
+                )
+            } else {
+                StorageCapacityPolicy.defaultReserveBytes(request.format.mode)
+            }
+            val requiredWithFloor = required.coerceAtLeast(StorageCapacityPolicy.MIN_FREE_DISK_FLOOR_BYTES)
+            val available = availableBytes()
+            check(available >= requiredWithFloor) {
+                "Not enough available storage. This download needs about " +
+                    "${StorageCapacityPolicy.formatBytes(requiredWithFloor)} free."
+            }
 
             check(directory.mkdirs()) { "Could not create the temporary download workspace." }
-            ExportDestination(directory)
+            activeWorkspacesMutex.withLock {
+                activeTaskIds.add(request.id)
+            }
+            ExportDestination(directory = directory, taskId = request.id)
         }
     }
 
@@ -107,7 +124,22 @@ internal class DownloadsStorageExporter(
 
     override suspend fun cleanup(destination: ExportDestination) =
         withContext(NonCancellable + dispatchers.io) {
-            deleteWorkspace(destination.directory, requireSuccess = false)
+            try {
+                deleteWorkspace(destination.directory, requireSuccess = false)
+            } finally {
+                activeWorkspacesMutex.withLock {
+                    if (destination.taskId.isNotBlank()) {
+                        activeTaskIds.remove(destination.taskId)
+                    } else {
+                        val safePrefix = "task-"
+                        if (destination.directory.name.startsWith(safePrefix)) {
+                            activeTaskIds.removeIf {
+                                runCatching { taskDirectory(it).canonicalFile == destination.directory.canonicalFile }.getOrDefault(false)
+                            }
+                        }
+                    }
+                }
+            }
         }
 
     override suspend fun outputExists(output: DownloadOutput): Boolean =
@@ -118,6 +150,53 @@ internal class DownloadsStorageExporter(
 
     override suspend fun cleanupAbandonedExports(): Int =
         withContext(dispatchers.io) { mediaStoreWriter.cleanupAbandonedPendingRows() }
+
+    override suspend fun clearDisposableCache(): Long = withContext(dispatchers.io) {
+        activeWorkspacesMutex.withLock {
+            var totalBytesFreed = 0L
+
+            // 1. Clean abandoned task workspaces inside workspaceRoot
+            if (workspaceRoot.exists() && workspaceRoot.isDirectory) {
+                val activeFolders = activeTaskIds.mapNotNull { id ->
+                    runCatching { taskDirectory(id).canonicalFile }.getOrNull()
+                }.toSet()
+                workspaceRoot.listFiles()?.forEach { taskFolder ->
+                    val canonical = runCatching { taskFolder.canonicalFile }.getOrNull()
+                    if (canonical != null && canonical !in activeFolders) {
+                        totalBytesFreed += deleteRecursivelyAndCountBytes(canonical)
+                    }
+                }
+            }
+
+            // 2. Clean other temporary/disposable files in context.cacheDir (excluding workspaceRoot)
+            val canonicalWorkspaceRoot = runCatching { workspaceRoot.canonicalFile }.getOrNull()
+            context.cacheDir.listFiles()?.forEach { file ->
+                val canonical = runCatching { file.canonicalFile }.getOrNull()
+                if (canonical != null && canonical != canonicalWorkspaceRoot) {
+                    totalBytesFreed += deleteRecursivelyAndCountBytes(canonical)
+                }
+            }
+
+            totalBytesFreed
+        }
+    }
+
+    private fun deleteRecursivelyAndCountBytes(file: File): Long {
+        if (!file.exists()) return 0L
+        var bytes = 0L
+        if (file.isDirectory) {
+            file.listFiles()?.forEach { child ->
+                bytes += deleteRecursivelyAndCountBytes(child)
+            }
+            file.delete()
+        } else {
+            val length = file.length()
+            if (file.delete()) {
+                bytes += length
+            }
+        }
+        return bytes
+    }
 
     private fun taskDirectory(taskId: String): File {
         val safeId = taskId.replace(Regex("[^A-Za-z0-9_-]"), "_").take(80)
@@ -142,7 +221,7 @@ internal class DownloadsStorageExporter(
 
     companion object {
         const val OUTPUT_FOLDER = "MediaDownloader"
-        private const val WORKING_FOLDER = "media-download-work"
+        private const val WORKING_FOLDER = "downloads_workspaces"
     }
 }
 
@@ -320,7 +399,7 @@ internal data class MediaStoreTarget(
 
 internal object MediaExportPolicy {
     const val PENDING_TITLE_PREFIX = "smd-pending:"
-    private val unsafeCharacters = Regex("[\\p{Cc}\\p{Cf}\\\\/:*?\"<>|]")
+    private val unsafeCharacters = Regex("[\\p{Cc}\\\\/:*?\"<>|]")
     private val whitespace = Regex("\\s+")
     private val validExtension = Regex("[A-Za-z0-9]{1,10}")
     private val reservedBaseNames = buildSet {
@@ -329,6 +408,33 @@ internal object MediaExportPolicy {
             add("COM$number")
             add("LPT$number")
         }
+    }
+    internal const val MAX_BASE_NAME_BYTES = 200
+
+    internal fun truncateUtf8Bytes(input: String, maxBytes: Int): String {
+        val bytes = input.toByteArray(Charsets.UTF_8)
+        if (bytes.size <= maxBytes) return input
+
+        var byteCount = 0
+        val sb = StringBuilder()
+        var i = 0
+        while (i < input.length) {
+            val codePoint = input.codePointAt(i)
+            val charCount = Character.charCount(codePoint)
+            val cpBytes = when {
+                codePoint <= 0x7F -> 1
+                codePoint <= 0x7FF -> 2
+                codePoint <= 0xFFFF -> 3
+                else -> 4
+            }
+            if (byteCount + cpBytes > maxBytes) {
+                break
+            }
+            sb.appendCodePoint(codePoint)
+            byteCount += cpBytes
+            i += charCount
+        }
+        return sb.toString()
     }
 
     fun sanitizeDisplayName(originalName: String, fallbackExtension: String): String {
@@ -342,9 +448,10 @@ internal object MediaExportPolicy {
             .replace(unsafeCharacters, "_")
             .replace(whitespace, " ")
             .trim(' ', '.')
-            .take(MAX_DISPLAY_NAME_LENGTH - extension.length - 1)
-            .trimEnd(' ', '.')
-            .ifBlank { "downloaded-media" }
+        base = truncateUtf8Bytes(base, MAX_BASE_NAME_BYTES).trimEnd(' ', '.')
+        if (base.isBlank()) {
+            base = "downloaded-media"
+        }
         if (base.uppercase(Locale.US) in reservedBaseNames) base += "_"
         return "$base.$extension"
     }
@@ -375,9 +482,8 @@ internal object MediaExportPolicy {
         var suffix = 1
         while (true) {
             val suffixText = " ($suffix)"
-            val allowedBaseLength =
-                (MAX_DISPLAY_NAME_LENGTH - extension.length - suffixText.length - 1).coerceAtLeast(1)
-            val collisionBase = base.take(allowedBaseLength).trimEnd(' ', '.').ifBlank {
+            val allowedBaseBytes = (MAX_BASE_NAME_BYTES - suffixText.toByteArray(Charsets.UTF_8).size).coerceAtLeast(1)
+            val collisionBase = truncateUtf8Bytes(base, allowedBaseBytes).trimEnd(' ', '.').ifBlank {
                 "downloaded-media"
             }
             val candidate = "$collisionBase$suffixText.$extension"
@@ -391,7 +497,7 @@ internal object MediaExportPolicy {
             MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
             "${Environment.DIRECTORY_MOVIES}/${DownloadsStorageExporter.OUTPUT_FOLDER}",
         )
-        mimeType.startsWith("audio/") -> MediaStoreTarget(
+        mimeType.startsWith("audio/") && !mimeType.equals("audio/webm", ignoreCase = true) -> MediaStoreTarget(
             MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
             "${Environment.DIRECTORY_MUSIC}/${DownloadsStorageExporter.OUTPUT_FOLDER}",
         )
@@ -425,12 +531,20 @@ internal object MediaExportPolicy {
         fileSizeBytes = fileSizeBytes,
         displayName = displayName,
     )
-
-    private const val MAX_DISPLAY_NAME_LENGTH = 180
 }
 
 internal object StorageCapacityPolicy {
     private const val HEADROOM_BYTES = 32L * 1024 * 1024
+    const val MIN_FREE_DISK_FLOOR_BYTES = 100L * 1024 * 1024 // 100 MB
+    const val DEFAULT_AUDIO_RESERVE_BYTES = 50L * 1024 * 1024 // 50 MB
+    const val DEFAULT_VIDEO_RESERVE_BYTES = 250L * 1024 * 1024 // 250 MB
+
+    fun defaultReserveBytes(mode: DownloadMode): Long =
+        if (mode == DownloadMode.AUDIO_MP3 || mode == DownloadMode.AUDIO_ORIGINAL) {
+            DEFAULT_AUDIO_RESERVE_BYTES
+        } else {
+            DEFAULT_VIDEO_RESERVE_BYTES
+        }
 
     fun requiredBytes(estimatedMediaBytes: Long, requiresProcessing: Boolean): Long {
         val multiplier = if (requiresProcessing) 3L else 2L

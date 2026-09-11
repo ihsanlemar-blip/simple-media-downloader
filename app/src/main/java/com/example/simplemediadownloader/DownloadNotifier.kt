@@ -60,7 +60,7 @@ class DownloadNotifier(private val context: Context) {
                 .setSilent(true)
                 .addAction(
                     android.R.drawable.ic_menu_close_clear_cancel,
-                    "Cancel",
+                    context.getString(R.string.action_cancel),
                     DownloadService.cancelPendingIntent(context, task.id),
                 )
                 .build(),
@@ -74,7 +74,7 @@ class DownloadNotifier(private val context: Context) {
         lastProgressNotificationAt.remove(taskId)
         showTerminal(
             taskId = taskId,
-            title = "Download completed",
+            title = context.getString(R.string.notification_download_completed),
             detail = output.displayName,
             icon = android.R.drawable.stat_sys_download_done,
         )
@@ -84,7 +84,11 @@ class DownloadNotifier(private val context: Context) {
     fun showCancelled(taskId: String) {
         lastStates.remove(taskId)
         lastProgressNotificationAt.remove(taskId)
-        showTerminal(taskId, "Download cancelled", "The download was stopped.")
+        showTerminal(
+            taskId = taskId,
+            title = context.getString(R.string.notification_download_cancelled),
+            detail = context.getString(R.string.notification_download_stopped),
+        )
     }
 
     @Synchronized
@@ -93,7 +97,7 @@ class DownloadNotifier(private val context: Context) {
         lastProgressNotificationAt.remove(taskId)
         showTerminal(
             taskId = taskId,
-            title = "Download failed",
+            title = context.getString(R.string.notification_download_failed),
             detail = message.take(180),
             icon = android.R.drawable.stat_notify_error,
         )
@@ -161,10 +165,10 @@ class DownloadNotifier(private val context: Context) {
         fun createChannel(context: Context) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Media downloads",
+                context.getString(R.string.notification_channel_name),
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
-                description = "Live media download progress"
+                description = context.getString(R.string.notification_channel_desc)
                 setSound(null, null)
             }
             context.getSystemService(NotificationManager::class.java)

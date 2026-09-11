@@ -67,6 +67,19 @@ class ShareIntentParserTest {
     }
 
     @Test
+    fun `rejects loopback, private ip, and metadata URLs in shared text`() {
+        val loopback = ShareIntentParser.parseText("Check this out: http://127.0.0.1/video.mp4")
+        val privateIp = ShareIntentParser.parseText("http://192.168.1.100:8080/stream")
+        val metadata = ShareIntentParser.parseText("http://169.254.169.254/latest/meta-data/")
+        val internalHost = ShareIntentParser.parseText("http://metadata.google.internal/computeMetadata")
+
+        assertTrue(loopback is SharedUrlResult.Invalid)
+        assertTrue(privateIp is SharedUrlResult.Invalid)
+        assertTrue(metadata is SharedUrlResult.Invalid)
+        assertTrue(internalHost is SharedUrlResult.Invalid)
+    }
+
+    @Test
     fun `short display URL preserves both identifying ends`() {
         val url = "https://example.test/a/very/long/path/to/media?video=important-id"
         val shortened = shortenedSourceUrl(url, maximumLength = 32)

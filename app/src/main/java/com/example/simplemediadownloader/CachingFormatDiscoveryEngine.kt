@@ -34,6 +34,26 @@ class CachingFormatDiscoveryEngine(
         return synchronized(lock) { cachedLocked(key, url) }
     }
 
+    override fun clearCache() {
+        synchronized(lock) {
+            cache.clear()
+        }
+    }
+
+    override fun invalidate(url: String) {
+        val key = NormalizedMediaUrl.from(url)
+        synchronized(lock) {
+            cache.remove(key)
+            inFlight.remove(key)?.cancel()
+        }
+        delegate.invalidate(url)
+    }
+
+    override suspend fun refreshFormats(url: String): FormatDiscoveryResult {
+        invalidate(url)
+        return discoverFormats(url)
+    }
+
     override suspend fun discoverFormats(url: String): FormatDiscoveryResult {
         val key = NormalizedMediaUrl.from(url)
         cachedFormatCatalog(url)?.let { return FormatDiscoveryResult.Success(it) }

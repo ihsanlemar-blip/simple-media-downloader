@@ -10,11 +10,13 @@ import androidx.room.PrimaryKey
     indices = [
         Index(value = ["status", "created_at"]),
         Index(value = ["completed_at"]),
+        Index(value = ["canonical_url"]),
     ],
 )
 data class DownloadTaskEntity(
     @PrimaryKey @ColumnInfo(name = "task_id") val taskId: String,
     @ColumnInfo(name = "source_url") val sourceUrl: String,
+    @ColumnInfo(name = "canonical_url") val canonicalUrl: String = "",
     @ColumnInfo(name = "display_title") val displayTitle: String,
     val platform: String,
     @ColumnInfo(name = "format_key") val formatKey: String,
@@ -53,46 +55,108 @@ data class DownloadTaskEntity(
     @ColumnInfo(name = "http_headers") val httpHeaders: String? = null,
 )
 
-fun DownloadRecord.toEntity(): DownloadTaskEntity = DownloadTaskEntity(
-    taskId = taskId,
-    sourceUrl = sourceUrl,
-    displayTitle = displayTitle,
-    platform = platform,
-    formatKey = format.key,
-    formatId = format.formatId,
-    companionAudioFormatId = format.companionAudioFormatId,
-    downloadMode = format.mode.name,
-    fileExtension = format.extension,
-    width = format.width,
-    height = format.height,
-    fps = format.fps,
-    bitrateKbps = format.bitrateKbps,
-    codec = format.codec,
-    formatNote = format.formatNote,
-    estimatedSizeBytes = format.estimatedSizeBytes,
-    sizeIsApproximate = format.sizeIsApproximate,
-    sourceHeight = format.sourceHeight,
-    requiresDownscale = format.requiresDownscale,
-    isQuickPreset = format.isQuickPreset,
-    status = status.name,
-    processingStage = stage.name,
-    progressPercent = progressPercent,
-    downloadedBytes = downloadedBytes,
-    totalBytes = totalBytes,
-    speedBytesPerSecond = speedBytesPerSecond,
-    etaSeconds = etaSeconds,
-    outputContentUri = output?.contentUri,
-    outputMimeType = output?.mimeType,
-    outputFileSizeBytes = output?.fileSizeBytes,
-    outputDisplayName = output?.displayName,
-    createdAt = createdAt,
-    startedAt = startedAt,
-    completedAt = completedAt,
-    failureCategory = failureCategory?.name,
-    failureMessage = failureMessage,
-    technicalFailureDetail = technicalFailureDetail,
-    httpHeaders = serializeHeaders(format.httpHeaders),
-)
+object CredentialRedactor {
+    private val sensitiveHeaderKeys = setOf(
+        "cookie",
+        "authorization",
+        "proxy-authorization",
+        "x-auth-token",
+        "session-token",
+    )
+
+    private val signatureQueryParamRegex = Regex(
+        "(?i)\\b(sig|signature|token|access_token|auth|expire|expires|session|key|secret|sessionId)=([^&#\\s\"'>)]+)",
+    )
+
+    private val authHeaderInTextRegex = Regex(
+        "(?i)(Authorization|Cookie|Set-Cookie):\\s*([^\\r\\n]+)",
+    )
+
+    private val bearerTokenInTextRegex = Regex(
+        "(?i)\\bBearer\\s+([A-Za-z0-9._~+/-]+=*)",
+    )
+
+    fun sanitizeHeaders(headers: Map<String, String>?, isTerminal: Boolean): Map<String, String>? {
+        if (headers.isNullOrEmpty()) return null
+        if (!isTerminal) return headers
+        val cleaned = headers.filterKeys { key ->
+            val lower = key.lowercase(java.util.Locale.US)
+            lower !in sensitiveHeaderKeys && !lower.contains("token") && !lower.contains("auth") && !lower.contains("cookie")
+        }
+        return cleaned.ifEmpty { null }
+    }
+
+    fun redactDiagnostics(detail: String?): String? {
+        if (detail.isNullOrBlank()) return detail
+        var redacted = detail
+        redacted = signatureQueryParamRegex.replace(redacted) { matchResult ->
+            val paramName = matchResult.groupValues[1]
+            "$paramName=[REDACTED]"
+        }
+        redacted = authHeaderInTextRegex.replace(redacted) { matchResult ->
+            val headerName = matchResult.groupValues[1]
+            "$headerName: [REDACTED]"
+        }
+        redacted = bearerTokenInTextRegex.replace(redacted) {
+            "Bearer [REDACTED]"
+        }
+        return redacted
+    }
+}
+
+fun DownloadRecord.toEntity(): DownloadTaskEntity {
+    val isTerminal = status in setOf(
+        DownloadTaskStatus.COMPLETED,
+        DownloadTaskStatus.FAILED,
+        DownloadTaskStatus.CANCELLED,
+        DownloadTaskStatus.INTERRUPTED,
+    )
+    val sanitizedHeaders = CredentialRedactor.sanitizeHeaders(format.httpHeaders, isTerminal)
+    val sanitizedTechnicalDetail = CredentialRedactor.redactDiagnostics(technicalFailureDetail)
+    val sanitizedFailureMessage = CredentialRedactor.redactDiagnostics(failureMessage)
+
+    return DownloadTaskEntity(
+        taskId = taskId,
+        sourceUrl = sourceUrl,
+        canonicalUrl = NormalizedMediaUrl.from(sourceUrl),
+        displayTitle = displayTitle,
+        platform = platform,
+        formatKey = format.key,
+        formatId = format.formatId,
+        companionAudioFormatId = format.companionAudioFormatId,
+        downloadMode = format.mode.name,
+        fileExtension = format.extension,
+        width = format.width,
+        height = format.height,
+        fps = format.fps,
+        bitrateKbps = format.bitrateKbps,
+        codec = format.codec,
+        formatNote = format.formatNote,
+        estimatedSizeBytes = format.estimatedSizeBytes,
+        sizeIsApproximate = format.sizeIsApproximate,
+        sourceHeight = format.sourceHeight,
+        requiresDownscale = format.requiresDownscale,
+        isQuickPreset = format.isQuickPreset,
+        status = status.name,
+        processingStage = stage.name,
+        progressPercent = progressPercent,
+        downloadedBytes = downloadedBytes,
+        totalBytes = totalBytes,
+        speedBytesPerSecond = speedBytesPerSecond,
+        etaSeconds = etaSeconds,
+        outputContentUri = output?.contentUri,
+        outputMimeType = output?.mimeType,
+        outputFileSizeBytes = output?.fileSizeBytes,
+        outputDisplayName = output?.displayName,
+        createdAt = createdAt,
+        startedAt = startedAt,
+        completedAt = completedAt,
+        failureCategory = failureCategory?.name,
+        failureMessage = sanitizedFailureMessage,
+        technicalFailureDetail = sanitizedTechnicalDetail,
+        httpHeaders = serializeHeaders(sanitizedHeaders),
+    )
+}
 
 fun DownloadTaskEntity.toRecord(): DownloadRecord = DownloadRecord(
     taskId = taskId,

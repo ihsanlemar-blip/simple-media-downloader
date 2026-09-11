@@ -19,6 +19,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.joinAll
@@ -33,6 +34,8 @@ class DownloadService : Service() {
     private lateinit var app: SimpleMediaDownloaderApp
     private lateinit var repository: DownloadRepository
     private lateinit var notifier: DownloadNotifier
+    private lateinit var preferenceStore: DownloadPreferenceStore
+    private lateinit var networkConnectivityManager: NetworkConnectivityManager
     private lateinit var serviceScope: CoroutineScope
     private val scheduler = DownloadQueueScheduler()
     private val activeJobs = ConcurrentHashMap<String, Job>()
@@ -49,14 +52,36 @@ class DownloadService : Service() {
         app = application as SimpleMediaDownloaderApp
         repository = app.downloadRepository
         notifier = DownloadNotifier(this)
+        preferenceStore = app.downloadPreferenceStore
+        networkConnectivityManager = app.networkConnectivityManager
+        networkConnectivityManager.startObserving()
+        scheduler.setConcurrencyLimit(preferenceStore.maxConcurrentDownloads.value)
         serviceScope = CoroutineScope(SupervisorJob() + app.dispatchers.io)
         DownloadNotifier.createChannel(this)
+
+        serviceScope.launch {
+            combine(
+                preferenceStore.wifiOnly,
+                networkConnectivityManager.status,
+            ) { wifiOnly, status ->
+                wifiOnly to status
+            }.collect {
+                schedulePersistedQueue()
+            }
+        }
+
+        serviceScope.launch {
+            preferenceStore.maxConcurrentDownloads.collect { limit ->
+                scheduler.setConcurrencyLimit(limit)
+                schedulePersistedQueue()
+            }
+        }
 
         // Promotion happens before database or backend initialization work.
         ServiceCompat.startForeground(
             this,
             DownloadNotificationIds.FOREGROUND,
-            buildForegroundNotification("Preparing download queue…"),
+            buildForegroundNotification(getString(R.string.notification_preparing_queue)),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
         )
     }
@@ -96,6 +121,7 @@ class DownloadService : Service() {
     }
 
     override fun onDestroy() {
+        networkConnectivityManager.stopObserving()
         val remaining = activeJobs.keys.toList()
         if (remaining.isNotEmpty()) {
             beginProcessCleanup("The download service stopped while work was active.")
@@ -109,6 +135,22 @@ class DownloadService : Service() {
 
     private suspend fun schedulePersistedQueue() = schedulingMutex.withLock {
         ensureRecovery()
+        val isAllowed = networkConnectivityManager.isNetworkAllowed(preferenceStore.wifiOnly.value)
+
+        if (!isAllowed) {
+            val activeTaskIds = activeJobs.keys.toList()
+            for (taskId in activeTaskIds) {
+                pauseActiveTask(taskId)
+            }
+            val queued = repository.queuedRequests()
+            queued.forEach {
+                repository.markWaitingForWifi(it.id)
+                scheduler.enqueue(it.id)
+            }
+            updateForegroundNotification(force = true)
+            return@withLock
+        }
+
         repository.queuedRequests().forEach { scheduler.enqueue(it.id) }
         scheduler.takeReady().forEach { taskId ->
             val request = repository.request(taskId)
@@ -121,6 +163,14 @@ class DownloadService : Service() {
         }
         updateForegroundNotification(force = true)
         stopIfIdle()
+    }
+
+    private suspend fun pauseActiveTask(taskId: String) {
+        val job = activeJobs.remove(taskId)
+        scheduler.complete(taskId)
+        scheduler.enqueue(taskId)
+        repository.pauseForWifi(taskId)
+        job?.cancel()
     }
 
     private suspend fun ensureRecovery() = recoveryMutex.withLock {
@@ -149,26 +199,7 @@ class DownloadService : Service() {
                     return@launch
                 }
 
-                if (request.format.requiresFfmpeg) {
-                    val preparing = DownloadState.Preparing(
-                        DownloadProgress(status = "Preparing media converter…"),
-                    )
-                    repository.prepareTask(taskId, preparing.progress.status)
-                    notifyState(request, preparing)
-                    val converter = app.ensureFfmpeg()
-                    if (converter.isFailure) {
-                        val error = converter.exceptionOrNull()
-                        val message = DownloadFailureCategory.CONVERTER_FAILURE.userMessage
-                        repository.failTask(
-                            taskId = taskId,
-                            message = message,
-                            category = DownloadFailureCategory.CONVERTER_FAILURE,
-                            technicalDetail = error?.stackTraceToString()?.take(2_000),
-                        )
-                        notifier.showFailed(taskId, message)
-                        return@launch
-                    }
-                }
+
 
                 repository.download(request) { state -> notifyState(request, state) }
             } catch (cancelled: CancellationException) {
@@ -270,11 +301,13 @@ class DownloadService : Service() {
         lastForegroundUpdateAt = now
         val active = scheduler.activeTaskIds().size
         val queued = scheduler.waitingTaskIds().size
+        val isAllowed = networkConnectivityManager.isNetworkAllowed(preferenceStore.wifiOnly.value)
         val detail = when {
-            active > 0 && queued > 0 -> "$active active, $queued queued"
-            active > 0 -> "$active download${if (active == 1) "" else "s"} active"
-            queued > 0 -> "$queued download${if (queued == 1) "" else "s"} queued"
-            else -> "Finishing download queue…"
+            !isAllowed && (active > 0 || queued > 0) -> getString(R.string.notification_waiting_wifi)
+            active > 0 && queued > 0 -> getString(R.string.notification_active_and_queued, active, queued)
+            active > 0 -> getString(R.string.notification_active_downloads, active)
+            queued > 0 -> getString(R.string.notification_queued_downloads, queued)
+            else -> getString(R.string.notification_finishing_queue)
         }
         runCatching {
             getSystemService(NotificationManager::class.java).notify(
@@ -287,7 +320,7 @@ class DownloadService : Service() {
     private fun buildForegroundNotification(detail: String): Notification =
         NotificationCompat.Builder(this, DownloadNotifier.CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle("Media downloads")
+            .setContentTitle(getString(R.string.notification_channel_name))
             .setContentText(detail)
             .setContentIntent(openAppPendingIntent())
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
@@ -296,7 +329,7 @@ class DownloadService : Service() {
             .setSilent(true)
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
-                "Cancel all",
+                getString(R.string.action_cancel_all),
                 cancelAllPendingIntent(this),
             )
             .build()

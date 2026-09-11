@@ -13,6 +13,7 @@ enum class DownloadTaskStatus {
 
 enum class DownloadProcessingStage {
     QUEUED,
+    WAITING_FOR_WIFI,
     PREPARING,
     INSPECTING,
     DOWNLOADING_VIDEO,
@@ -69,7 +70,10 @@ data class DownloadRecord(
             status = stage.statusText(format),
         )
         return when (status) {
-            DownloadTaskStatus.QUEUED -> DownloadState.Queued
+            DownloadTaskStatus.QUEUED -> when (stage) {
+                DownloadProcessingStage.WAITING_FOR_WIFI -> DownloadState.WaitingForWifi(progress)
+                else -> DownloadState.Queued
+            }
             DownloadTaskStatus.RUNNING -> when (stage) {
                 DownloadProcessingStage.INSPECTING -> DownloadState.Inspecting(progress)
                 DownloadProcessingStage.DOWNLOADING_VIDEO -> DownloadState.Downloading(
@@ -119,6 +123,25 @@ interface DownloadHistoryStore {
         return true
     }
     suspend fun update(record: DownloadRecord)
+    suspend fun updateProgress(
+        taskId: String,
+        stage: DownloadProcessingStage,
+        progress: DownloadProgress,
+    ): Boolean {
+        val current = get(taskId) ?: return false
+        if (current.status != DownloadTaskStatus.RUNNING) return false
+        update(
+            current.copy(
+                stage = stage,
+                progressPercent = progress.percentage,
+                downloadedBytes = progress.downloadedBytes ?: current.downloadedBytes,
+                totalBytes = progress.totalBytes ?: current.totalBytes,
+                speedBytesPerSecond = progress.speedBytesPerSecond,
+                etaSeconds = progress.etaSeconds,
+            ),
+        )
+        return true
+    }
     suspend fun get(taskId: String): DownloadRecord?
     suspend fun recoverRunningTasks(interruptedAt: Long, technicalDetail: String): Int
     suspend fun interruptTask(taskId: String, interruptedAt: Long, technicalDetail: String): Boolean
@@ -126,10 +149,14 @@ interface DownloadHistoryStore {
     suspend fun retry(taskId: String): Boolean
     suspend fun removeHistoryEntry(taskId: String): Boolean
     suspend fun clearCompletedHistory(): Int
+    fun searchHistory(query: String): Flow<List<DownloadRecord>> = kotlinx.coroutines.flow.emptyFlow()
+    suspend fun getHistoricalTasks(limit: Int, offset: Int): List<DownloadRecord> = emptyList()
+    suspend fun searchHistoryPaged(query: String, limit: Int, offset: Int): List<DownloadRecord> = emptyList()
 }
 
 private fun DownloadProcessingStage.statusText(format: AvailableFormat): String = when (this) {
     DownloadProcessingStage.QUEUED -> "Queued..."
+    DownloadProcessingStage.WAITING_FOR_WIFI -> "Waiting for Wi-Fi…"
     DownloadProcessingStage.PREPARING -> "Preparing download..."
     DownloadProcessingStage.INSPECTING -> "Inspecting formats..."
     DownloadProcessingStage.DOWNLOADING_VIDEO -> "Downloading video…"

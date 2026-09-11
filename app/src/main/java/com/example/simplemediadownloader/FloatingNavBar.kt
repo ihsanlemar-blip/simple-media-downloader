@@ -45,6 +45,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -128,6 +129,13 @@ private fun FloatingNavItem(
         NavigationTab.SETTINGS -> Icons.Rounded.Settings
     }
 
+    val label = when (tab) {
+        NavigationTab.GATEWAY -> stringResource(R.string.tab_gateway)
+        NavigationTab.TRANSFERS -> stringResource(R.string.tab_transfers)
+        NavigationTab.VAULT -> stringResource(R.string.tab_vault)
+        NavigationTab.SETTINGS -> stringResource(R.string.tab_settings)
+    }
+
     val contentColor = if (isSelected) {
         MaterialTheme.colorScheme.primary
     } else {
@@ -176,14 +184,14 @@ private fun FloatingNavItem(
             ) {
                 Icon(
                     imageVector = icon,
-                    contentDescription = tab.label,
+                    contentDescription = label,
                     tint = contentColor,
                     modifier = Modifier.size(22.dp),
                 )
             }
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = tab.label,
+                text = label,
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontSize = 11.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,

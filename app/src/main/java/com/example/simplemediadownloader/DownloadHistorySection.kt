@@ -53,6 +53,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -105,7 +106,7 @@ fun DownloadHistorySection(
                     modifier = Modifier.size(22.dp),
                 )
                 Text(
-                    text = "History (${tasks.size})",
+                    text = stringResource(R.string.history_section_title, tasks.size),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -118,7 +119,7 @@ fun DownloadHistorySection(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
                 ) {
                     Text(
-                        "Clear all",
+                        stringResource(R.string.action_clear_all),
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -133,7 +134,7 @@ fun DownloadHistorySection(
             modifier = Modifier.fillMaxWidth(),
             placeholder = {
                 Text(
-                    "Search saved downloads or creators…",
+                    stringResource(R.string.search_saved_downloads_placeholder),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             },
@@ -150,7 +151,7 @@ fun DownloadHistorySection(
                     IconButton(onClick = { onSearchQueryChange("") }) {
                         Icon(
                             imageVector = Icons.Rounded.Close,
-                            contentDescription = "Clear search",
+                            contentDescription = stringResource(R.string.action_clear_search),
                             modifier = Modifier.size(18.dp),
                         )
                     }
@@ -183,7 +184,7 @@ fun DownloadHistorySection(
                     },
                     label = {
                         Text(
-                            text = platform,
+                            text = if (platform == "All") stringResource(R.string.filter_all) else platform,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                             fontSize = 13.sp,
                         )
@@ -216,7 +217,11 @@ fun DownloadHistorySection(
                         modifier = Modifier.size(40.dp),
                     )
                     Text(
-                        text = if (searchQuery.isNotBlank() || selectedPlatform != null) "No matching downloads found" else "No finished downloads yet",
+                        text = if (searchQuery.isNotBlank() || selectedPlatform != null) {
+                            stringResource(R.string.history_empty_search)
+                        } else {
+                            stringResource(R.string.history_empty_all)
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -226,7 +231,7 @@ fun DownloadHistorySection(
         } else {
             groupedTasks.forEach { (dateGroup, groupTasks) ->
                 Text(
-                    text = dateGroup,
+                    text = stringResource(dateGroup.stringRes),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -357,7 +362,7 @@ fun FinishedTaskCard(
                                     modifier = Modifier.size(16.dp),
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Open", fontWeight = FontWeight.Bold)
+                                Text(stringResource(R.string.action_open), fontWeight = FontWeight.Bold)
                             }
                             OutlinedButton(
                                 onClick = {
@@ -376,7 +381,7 @@ fun FinishedTaskCard(
                                     modifier = Modifier.size(16.dp),
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Share", fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.action_share), fontWeight = FontWeight.SemiBold)
                             }
                         }
 
@@ -384,7 +389,7 @@ fun FinishedTaskCard(
                             IconButton(onClick = onDelete) {
                                 Icon(
                                     imageVector = Icons.Rounded.Delete,
-                                    contentDescription = "Delete media file",
+                                    contentDescription = stringResource(R.string.content_desc_delete_media),
                                     tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
                                     modifier = Modifier.size(18.dp),
                                 )
@@ -392,7 +397,7 @@ fun FinishedTaskCard(
                             IconButton(onClick = onRemove) {
                                 Icon(
                                     imageVector = Icons.Rounded.Close,
-                                    contentDescription = "Remove from history",
+                                    contentDescription = stringResource(R.string.content_desc_remove_history),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(18.dp),
                                 )
@@ -448,7 +453,11 @@ fun FinishedTaskCard(
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp),
                         ) {
                             Text(
-                                text = if (technicalDetailsVisible) "Hide technical log" else "View technical log",
+                                text = if (technicalDetailsVisible) {
+                                    stringResource(R.string.action_hide_technical_log)
+                                } else {
+                                    stringResource(R.string.action_view_technical_log)
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                             )
                         }
@@ -468,12 +477,12 @@ fun FinishedTaskCard(
                                     modifier = Modifier.size(14.dp),
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Retry", fontSize = 12.sp)
+                                Text(stringResource(R.string.action_retry), fontSize = 12.sp)
                             }
                             IconButton(onClick = onRemove) {
                                 Icon(
                                     imageVector = Icons.Rounded.Close,
-                                    contentDescription = "Remove entry",
+                                    contentDescription = stringResource(R.string.content_desc_remove_entry),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(16.dp),
                                 )
@@ -509,7 +518,7 @@ fun FinishedTaskCard(
                                         modifier = Modifier.size(14.dp),
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Copy error log", fontSize = 12.sp)
+                                    Text(stringResource(R.string.action_copy_error_log), fontSize = 12.sp)
                                 }
                             }
                         }
@@ -523,14 +532,14 @@ fun FinishedTaskCard(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = "Download cancelled",
+                            text = stringResource(R.string.status_download_cancelled),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         IconButton(onClick = onRemove) {
                             Icon(
                                 imageVector = Icons.Rounded.Close,
-                                contentDescription = "Remove entry",
+                                contentDescription = stringResource(R.string.content_desc_remove_entry),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(16.dp),
                             )
@@ -544,7 +553,7 @@ fun FinishedTaskCard(
     }
 }
 
-private fun groupTasksByDate(tasks: List<DownloadTask>): Map<String, List<DownloadTask>> {
+private fun groupTasksByDate(tasks: List<DownloadTask>): Map<DateGroup, List<DownloadTask>> {
     val now = LocalDate.now(ZoneId.systemDefault())
     return tasks.groupBy { task ->
         val timestamp = task.completedAt ?: task.startedAt ?: task.createdAt
@@ -555,10 +564,10 @@ private fun groupTasksByDate(tasks: List<DownloadTask>): Map<String, List<Downlo
         }
         val daysBetween = ChronoUnit.DAYS.between(taskDate, now)
         when {
-            daysBetween <= 0L -> "Today"
-            daysBetween == 1L -> "Yesterday"
-            daysBetween in 2..7 -> "Earlier this Week"
-            else -> "Older"
+            daysBetween <= 0L -> DateGroup.TODAY
+            daysBetween == 1L -> DateGroup.YESTERDAY
+            daysBetween in 2..7 -> DateGroup.THIS_WEEK
+            else -> DateGroup.OLDER
         }
     }
 }

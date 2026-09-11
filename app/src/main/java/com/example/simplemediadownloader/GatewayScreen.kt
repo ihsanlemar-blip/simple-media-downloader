@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -112,7 +113,7 @@ fun GatewayScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Recent Saved Media",
+                        text = stringResource(R.string.quick_history_subtitle),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -123,7 +124,7 @@ fun GatewayScreen(
                             onNavigateToVault()
                         },
                     ) {
-                        Text("View Vault", fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.action_view_all_vault), fontWeight = FontWeight.SemiBold)
                         Spacer(modifier = Modifier.width(4.dp))
                         Icon(
                             imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
@@ -243,7 +244,7 @@ private fun RecentMediaItem(
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Rounded.PlayArrow,
-                        contentDescription = "Preview",
+                        contentDescription = stringResource(R.string.action_preview),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp),
                     )
@@ -294,7 +295,7 @@ private fun GatewayBackendAlert(
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Text(
-                    "Initializing media extraction engine…",
+                    stringResource(R.string.subtitle_gateway_init),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -318,7 +319,7 @@ private fun GatewayBackendAlert(
                     modifier = Modifier.size(18.dp),
                 )
                 Text(
-                    text = backend.error ?: "Download engine initialization failed",
+                    text = backend.error ?: stringResource(R.string.backend_alert_title),
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onErrorContainer,
@@ -326,7 +327,7 @@ private fun GatewayBackendAlert(
                 IconButton(onClick = onRetry) {
                     Icon(
                         imageVector = Icons.Rounded.Refresh,
-                        contentDescription = "Retry engine init",
+                        contentDescription = stringResource(R.string.action_retry),
                         tint = MaterialTheme.colorScheme.onErrorContainer,
                         modifier = Modifier.size(18.dp),
                     )

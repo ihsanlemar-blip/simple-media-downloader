@@ -77,4 +77,57 @@ class SocialMediaExtractorTest {
         assertEquals("Cool Creator", catalog.author)
         assertEquals("https://p16-sign.tiktokcdn.com/cover.jpg", catalog.thumbnailUrl)
     }
+
+    @Test
+    fun `extractFacebookId correctly extracts reel ID and share slug`() {
+        val reelUrl = "https://www.facebook.com/reel/1790188258662679/?rdid=abc"
+        assertEquals("1790188258662679", SocialMediaExtractor.extractFacebookId(reelUrl))
+
+        val watchUrl = "https://www.facebook.com/watch/?v=1790188258662679"
+        assertEquals("1790188258662679", SocialMediaExtractor.extractFacebookId(watchUrl))
+
+        val videoUrl = "https://www.facebook.com/videos/1790188258662679/"
+        assertEquals("1790188258662679", SocialMediaExtractor.extractFacebookId(videoUrl))
+
+        val shareUrl = "https://www.facebook.com/share/r/1HiUf2xmaP/"
+        assertEquals("1HiUf2xmaP", SocialMediaExtractor.extractFacebookId(shareUrl))
+    }
+
+    @Test
+    fun `parseFacebookHtml extracts browser_native progressive video and audio streams`() {
+        val html = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta property="og:title" content="Sensational Concert Event 2026 | Facebook">
+                <meta property="og:image" content="https:\/\/scontent-fra3-2.xx.fbcdn.net\/v\/t15\/thumb.jpg">
+            </head>
+            <body>
+                <script>
+                    {"browser_native_hd_url":"https:\/\/video-fra3-2.xx.fbcdn.net\/o1\/v\/t2\/f2\/m366\/hd.mp4?a=1","browser_native_sd_url":"https:\/\/video-fra3-1.xx.fbcdn.net\/o1\/v\/t2\/f2\/m412\/sd.mp4?a=1"}
+                </script>
+            </body>
+            </html>
+        """.trimIndent()
+
+        val catalog = SocialMediaExtractor.parseFacebookHtml(okhttp3.OkHttpClient(), html, "https://www.facebook.com/reel/1790188258662679/")
+        assertNotNull(catalog)
+        assertEquals("Sensational Concert Event 2026", catalog?.title)
+        assertEquals("https://scontent-fra3-2.xx.fbcdn.net/v/t15/thumb.jpg", catalog?.thumbnailUrl)
+
+        val hd = catalog?.videoFormats?.find { it.key == "fb-hd" }
+        assertNotNull("HD format must be extracted", hd)
+        assertEquals("https://video-fra3-2.xx.fbcdn.net/o1/v/t2/f2/m366/hd.mp4?a=1", hd?.formatId)
+        assertEquals("mp4", hd?.extension)
+
+        val sd = catalog?.videoFormats?.find { it.key == "fb-sd" }
+        assertNotNull("SD format must be extracted", sd)
+        assertEquals("https://video-fra3-1.xx.fbcdn.net/o1/v/t2/f2/m412/sd.mp4?a=1", sd?.formatId)
+
+        // Must provide extracted audio tracks
+        val audio = catalog?.audioFormats?.find { it.key == "fb-audio-extract" }
+        assertNotNull("Extracted audio must be present", audio)
+        assertEquals("m4a", audio?.extension)
+    }
 }
+

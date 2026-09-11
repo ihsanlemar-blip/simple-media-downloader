@@ -1,0 +1,106 @@
+# Project review and modification prompts
+
+Reviewed 10 September 2026. Scope: Android application source, manifest, Gradle configuration, persistence, extraction/download/export paths, Compose screens, representative tests, and the supplied screen.png. This is a static review, not a penetration test or device certification. No application code was changed.
+
+## Copy-ready modification prompts
+
+Use these in order, one task at a time. Add this instruction to each: “Inspect the current implementation first. Preserve unrelated work. Implement the change, add meaningful regression coverage, run relevant checks, and report what passed and what remains unverified. Do not publish a release.”
+
+1. **Cookie and network security:** “Fix cookie isolation in NewPipeDownloader.kt and SocialMediaExtractor.kt. Respect domain, host-only, path, Secure, and expiry attributes; identify cookies by name/domain/path. Eliminate unscoped Cookie headers on extracted media requests and redirects. Apply a shared URL policy to input, redirect targets, thumbnails, and extracted streams; prevent unintended local/private-network requests and HTTPS downgrade. Test cross-origin redirects, expired cookies, deceptive hostnames, and IPv4/IPv6 local addresses.”
+
+2. **Extraction privacy:** “Make third-party extraction an explicit persisted choice. Inventory TikWM, FxTwitter/FixupX, and Cobalt gateway calls; disclose which URL or identifier each receives before making those calls. Default to direct extraction, retain a usable failure path when fallback is disabled, and replace the false on-device-only README claims.”
+
+3. **Download integrity:** “Repair OkHttpDownloadEngine range handling. Validate 206 Content-Range, expected byte counts, representation identity, and final length. Handle a 200 response to Range by restarting a single full transfer, never writing the full body at a chunk offset. Reject HTML, JSON errors, and unsupported playlists as completed media. Add deterministic HTTP-server tests for ignored ranges, short chunks, changed ETags, disconnects, and corrupt content.”
+
+4. **Honest formats and conversion:** “Fix MP3 output: the current NewPipe path renames original audio without transcoding. Implement real conversion using a verified encoder, or remove unsupported MP3 choices. Validate the output codec/container/MIME. Select mux-compatible video/audio tracks, preserve actual output metadata, and stop silently substituting the highest resolution for an unavailable requested quality.”
+
+5. **Cancellation and state races:** “Make download cancellation cooperative through discovery, probes, transfers, retries, muxing, and saving. Replace shared mutable call lists with a thread-safe registry. Use atomic, generation-aware task transitions so stale progress cannot resurrect cancelled tasks or overwrite retries. Test cancel-versus-completion, cancellation during muxing, and service timeout/process recovery.”
+
+6. **Functional settings and safe cleanup:** “Enforce Wi-Fi-only centrally for main-screen, shared-link, retry, and recovered tasks, including network changes. Have DownloadService observe the persisted concurrency limit. Replace whole-cache recursive deletion with cleanup that excludes active workspaces and reports actual reclaimed bytes; explicitly invalidate the format cache. Test settings while work is active.”
+
+7. **Reliable stream refresh:** “Add explicit forced refresh/cache invalidation for expired stream URLs. The existing 403 retry calls discovery through the same unexpired cache. Refresh signed URLs and required headers before replaying persisted tasks, preserve the chosen format where available, and bound retries with cancellation-aware backoff.”
+
+8. **Safe library management:** “Fix batch deletion in VaultScreen/MainViewModel: confirm deletion of actual saved files, distinguish remove-history from delete-file, await every result, and report partial failures accurately. Add paginated database search and filtering across all history instead of only the latest 100 entries. Make creator search truthful by storing/indexing creator metadata or changing its label.”
+
+9. **UI/UX and accessibility:** “Improve the Compose interface around the journey Paste link → inspect media → select output → download → open. Use clear Home/Downloads/Library labels, one primary action, truthful format availability, actionable failures, and an aggregate progress model for audio/video transfers. Make chip rows, selection controls, sheets, and navigation adapt to narrow screens, landscape, large fonts, RTL, and TalkBack. Validate current screens on an emulator/device; do not assume screen.png represents the current UI.”
+
+10. **Preview playback:** “Make MediaPreviewBottomSheet lifecycle-aware, handle audio focus and playback errors, preserve/reset position appropriately per media item, and update PlayerView when its player changes. Adapt aspect ratio for portrait video and support small-screen scrolling. Verify backgrounding, rotation, missing files, and repeated media selection.”
+
+11. **Maintainability and performance:** “Split SocialMediaExtractor into platform adapters with shared HTTP policy, bounded response parsing, structured failures, and cancellable time budgets. Inject clients and clocks. Bound concurrent discovery and progress buffering, avoid repeated history file checks on every progress update, and add fixture-based extraction tests. Remove obsolete yt-dlp/FFmpeg compatibility naming and unused dependencies after checking references.”
+
+12. **Release readiness:** “Align Gradle versionName/versionCode, the About screen, README, actual engine, and ABI packaging. Add CI for unit tests, lint, assembly, Room migrations, HTTP regressions, and selected instrumentation tests. Add Gradle wrapper checksum and dependency verification, review resolved dependency advisories, and document secure release signing without storing private keys. Report actual artifact properties and device checks.”
+
+## Overall assessment
+
+The project has a useful foundation: separated UI/repository/service responsibilities, Room-backed tasks, MediaStore pending publication, scoped content URI sharing, disabled backups, and existing tests. However, correctness and trust issues should be addressed before a visual redesign or wider release. The most important defects concern media integrity, cookie handling, misleading settings, unsafe cache cleanup, and undisclosed external extraction.
+
+The implemented stack is NewPipe + custom social-site extraction + OkHttp + Android MediaMuxer, with Media3 preview playback. README descriptions of embedded yt-dlp/Python/QuickJS/FFmpeg are obsolete. A dependency version being old is not, by itself, proof of a vulnerability; this review does not claim any confirmed dependency CVE.
+
+## Priority findings
+
+“Confirmed” below means directly visible in the source. Runtime impact still needs regression tests/device verification. “Risk” identifies a missing protection whose exploitability depends on input or timing.
+
+| Priority | Finding and evidence | Impact / required change |
+|---|---|---|
+| High — security, confirmed | `NewPipeDownloader.kt:24` returns every stored cookie for every URL. `SocialMediaExtractor.kt:27` also returns the entire cookie store; line 31 constructs an unscoped Cookie header. | Cookies can cross domain/path/security boundaries. These appear to be extractor session/consent cookies; logged-in account theft was not demonstrated. Use matching, expiry-aware cookie storage and destination-scoped headers. |
+| High — privacy, confirmed | `SocialMediaExtractor.kt:67` automatically invokes public gateway fallback; lines 162, 1174, and 1489 identify TikWM, FxTwitter/FixupX, and Cobalt services. | URLs or post identifiers leave the source platform and reach additional providers, contradicting README privacy/architecture claims. Introduce informed fallback settings and truthful documentation. |
+| High — correctness, confirmed | `DownloadEngine.kt:462` accepts both 200 and 206 in the chunk loop, writes at `currentStart`, and advances to the next requested range at line 529 without checking the returned range or chunk length. | A server ignoring Range can cause repeated full-body writes and corrupted output; short responses can leave gaps. Validate range semantics and representation identity before publishing. |
+| High — correctness, confirmed | `FormatDiscoveryEngine.kt:222` sets `.mp3` while retaining the same original audio URL. `DownloadEngine.kt` copies that stream without conversion; `SimpleMediaDownloaderApp.ensureFfmpeg()` always returns success. | NewPipe MP3 choices can produce mislabeled M4A/WebM bytes. Implement real encoding or remove that capability. |
+| High — user data, confirmed | `MainViewModel.kt:215` recursively deletes all entries under `cacheDir`; the exporter uses this cache for active task workspaces. | Pressing Clean during a transfer/mux/export can destroy live work. Exclude active workspaces under coordinated ownership. This operation also does not clear the in-memory format catalog cache advertised by the screen. |
+| High — user trust, confirmed | Wi-Fi-only appears in preferences, UI state, and SettingsScreen, but no service/engine network policy consumes it. Manifest has no ACCESS_NETWORK_STATE permission. | Enabling the setting does not prevent cellular downloads. Implement policy centrally and handle transitions while downloads are active. |
+| High — destructive UX, confirmed | `VaultScreen.kt:122` calls batch deletion directly. `MainViewModel.kt:189` launches individual deletions and immediately announces all items deleted. | Files can be deleted without batch confirmation, and failed deletes are reported as success. Await results and distinguish saved files from history-only entries. |
+| Medium — concurrency, confirmed unsafe pattern | `DownloadEngine.kt:47` stores mutable lists inside a concurrent map; audio/video workers add/remove calls while cancellation iterates them. | The map does not make its list values thread-safe. Cancellation can race with registration/removal. Use a synchronized registry and test concurrent cancellation. |
+| Medium — cancellation, confirmed gap | `DownloadEngine.probeStream()` does not register its HTTP call; `MediaStreamMuxer.mux()` has no cancellation checkpoint; blocking HTTP reads and Thread.sleep are not integrated with coroutine cancellation. | Cancelling can leave discovery/probing/muxing working until completion or timeout. Propagate cancellation to every stage. |
+| Medium — state consistency, risk | `DownloadRepository.persistState()` reads then replaces a complete record without a conditional transition. Progress writers and cancel commands execute independently. | Late running-state updates can overwrite cancellation; old executions may interfere with retries. Use atomic allowed-state updates and an execution generation. |
+| Medium — expired URLs, confirmed | `DownloadEngine.kt:249` refreshes a 403 through `CachingFormatDiscoveryEngine`, which returns cached successes for two minutes and exposes no forced refresh. | The retry can receive the same rejected stream. Stored direct URLs also skip initial rediscovery for many platforms. Invalidate and refresh explicitly. |
+| Medium — settings, confirmed | MainViewModel and ShareDownloadViewModel call `DownloadService.enqueue` without a configured concurrency argument; the service does not observe the stored preference. | The selected limit can differ from actual scheduling. Read the persisted setting at the service boundary and respond to changes. |
+| Medium — muxing, confirmed gaps | `MediaStreamMuxer.kt:55` uses a fixed 1 MiB buffer. It returns true before `finally` calls stop; stop exceptions are swallowed and release is in the same try block. Discovery chooses tracks without a device/container compatibility gate. | Large samples or incompatible codec pairs can fail. Finalization failure may still be reported as success and prevent release. Validate compatibility, size buffers safely, and make finalization part of success. |
+| Medium — output validation, confirmed gap | Final engine validation mainly checks existence and a 1 KiB threshold; continuous downloads reject HTML only, and chunks lack this check. | JSON errors or playlist text can be treated as media if sufficiently large. Validate expected media format and transfer completeness. |
+| Medium — format selection, confirmed | `DownloadEngine.kt:95` falls back to the first video format when no exact height matches. Discovery sorts highest resolution first. | A requested small download may become a much larger one. Prefer an explicit lower-or-equal policy and disclose any substitution. |
+| Medium — resource protection, risk | Many extractor calls use unbounded `body.string()`; the application-scoped discovery in-flight map has no concurrency bound. Storage checks only run when an estimate exists. | Large responses, repeated URL submissions, or unknown-size media can pressure memory, connections, and disk. Bound metadata sizes and discovery work; monitor free space during transfer. |
+| Medium — URL trust, risk | Share validation checks scheme/host/length, but main input only checks regex extraction. Redirects and URLs supplied by extractor responses have no common private-address/downgrade policy. | An untrusted remote response can cause unintended device-origin requests, including potentially to local services. No end-to-end local-network exploit was demonstrated. Apply policy to each network destination and resolve addresses safely. |
+| Medium — library scale, confirmed | `DownloadTaskDao.kt:24` defaults history to 100 rows. MainUiState filters/searches that already limited list. | Older saved items remain in storage but disappear from library search. Use database-backed paging and filtering. |
+| Medium — preview lifecycle, confirmed gap | `MediaPreviewBottomSheet.kt` releases ExoPlayer only on composition disposal; it has no lifecycle stop handling, audio-focus configuration, or player-error UI. PlayerView is assigned in factory only. | Background playback/resource retention and stale preview binding need correction and device validation. |
+| Medium — release consistency, confirmed | Gradle declares versionCode 1/versionName 1.0; Settings displays 2.5.0. README claims ABI splitting even though the inspected app build file has no splits block and its bundle flag is unused. | Installed metadata, update expectations, and release instructions disagree. Derive About from BuildConfig and verify produced artifacts. |
+
+HTTP allows a server to ignore a Range request; the client must distinguish full from partial responses and validate Content-Range. See [RFC 9110, Range Requests](https://www.rfc-editor.org/rfc/rfc9110.html#name-range-requests). Android recommends releasing an activity-owned player in onStop on this app's supported API levels; see [Media3 playback guidance](https://developer.android.com/media/implement/playback-app).
+
+## UI/UX improvements
+
+- **Clear navigation:** Gateway and Vault are less immediately descriptive than Home and Library. Explain Downloads as current/failed work and Library as saved output, with clear access to history-only items.
+- **Truthful copy:** Gateway promises watermark-free media, stories, original titles and tags. Actual support varies, title cleaning removes hashtags, and metadata persistence is incomplete. Show capabilities derived from discovery rather than universal promises.
+- **Single main action:** Present Paste beside the input, then a clear Download action and a secondary quality selector. Show title, creator, platform, actual container, resolution, and estimated size once known. Avoid offering conversion or preset precision that the backend cannot deliver.
+- **Stable progress:** Parallel audio/video callbacks currently replace a single progress object. Aggregate bytes/speed across tracks, retain individual stage information, and show indeterminate processing where totals are unknown. Avoid apparent backward progress.
+- **Actionable failures:** Differentiate site changes, rate limits, access restrictions, connectivity, insufficient space, and unsupported formats. Offer Retry, Refresh formats, or Change format as appropriate. Raw technical output should be optional and redact signed query parameters and credentials before copying.
+- **Accessible selection:** Settings uses clickable rows containing separately clickable RadioButtons; give each option one selectable radio-group semantic target. Label the Wi-Fi switch and preview slider. Test TalkBack traversal and selected-state announcements.
+- **Adaptive layout:** Settings concurrency chips use a fixed Row with four labels; Vault toolbars pack multiple actions in one Row. These are overflow risks at large fonts/narrow widths, not visually confirmed failures. Use wrapping/adaptive controls and test 200% fonts, RTL, landscape, and tablets.
+- **Localization:** UI strings are predominantly embedded in Kotlin; move user-facing strings and plural forms into resources. Test right-to-left layouts instead of relying only on supportsRtl.
+- **Preview:** Use actual video aspect ratio, meaningful loading/error states, lifecycle-aware audio focus, and accessible seeking. Avoid assuming every video is 16:9.
+- **Honest search and totals:** “Search saved media or creator” currently searches title and URL only. “Session” bytes are derived from the loaded history and active task list, not a defined session counter. Align labels and data models.
+- **State restoration:** Preserve the main input, selected tab, filters, and unfinished format selection across process recreation using SavedStateHandle where appropriate; the share flow already uses it.
+
+The supplied screen.png shows an older single-screen interface with duplicate “Choose quality” labels and repeated failure cards. Current source has four tabs, so that screenshot is historical evidence only, not proof of the current rendered layout.
+
+## Architecture, performance, and testing
+
+SocialMediaExtractor is approximately 1,680 lines and combines platform rules, HTTP, parsing, fallback selection, cookies, and presentation metadata. Separate platform adapters, shared network policy, and pure parsers. Preserve platform-specific fixture tests so upstream HTML changes produce identifiable failures.
+
+Remove misleading YtDlp type aliases, initialization names, unused parser paths, and converter stubs once references are checked. Use typed execution output (file, actual format, resolved title, codecs) instead of a textual output marker and original request metadata. This makes final export/history accurately reflect the downloaded format.
+
+The progress channel is unlimited, and every byte/speed change can write Room. Observing history from the same table can trigger repeated output-existence checks while progress changes. Use bounded/coalesced progress, a deliberate persistence interval with terminal-state flushing, and targeted missing-file validation. Measure before further optimization.
+
+Add deterministic HTTP tests for cookie boundaries, redirects, truncated bodies, ranges, 403 refresh, and cancellation. The inspected engine test checks preset construction and that cancel returns true; it does not prove a live transfer stops. Social extractor tests cover titles/model fields but not actual fallback parsing/network policy. Existing repository, DAO, storage, share, and accessibility tests are valuable and should be retained.
+
+Device verification should cover API 29/33/34/35 (and current supported newer Android versions), notification denial, background/foreground transitions, process death, service timeout, Wi-Fi loss, concurrent transfers, cache cleaning while active, large media, unsupported codecs, interrupted export, and a minified signed release. Never mark these passed solely because unit tests pass.
+
+Release improvements: pin the Gradle distribution checksum, introduce dependency verification and a resolved dependency inventory, review advisories against exact resolved artifacts, add CI, and reconcile signing/version/ABI documentation. Verify license notices before removing packaged license resources. Do not replace an already-distributed applicationId without considering update compatibility.
+
+## Verification performed and limits
+
+- Read source and configuration for the major application boundaries and relevant UI paths; reviewed representative automated tests and the supplied screenshot.
+- Attempted `.\gradlew.bat :app:testDebugUnitTest :app:lintDebug --offline`.
+- The wrapper attempted to fetch Gradle 8.13 before Gradle could apply offline mode, then failed with `java.net.SocketException: Permission denied: getsockopt`. No tests or lint checks ran successfully in this review.
+- Did not run the app on an emulator/device, contact extraction providers with user media URLs, inspect a signed APK, reproduce an exploit, or perform a complete transitive dependency advisory scan.
+- Working tree was clean before this review. Only this review document was added.
+
+Recommended sequence: prompts 1–7 for security and download correctness; 8–10 for library and UX; 11–12 for maintainability and release verification. Release verification should accompany each completed stage.

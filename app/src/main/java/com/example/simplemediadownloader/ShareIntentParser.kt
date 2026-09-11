@@ -51,7 +51,8 @@ object ShareIntentParser {
         val parsed = URI(url)
         (parsed.scheme.equals("http", ignoreCase = true) ||
             parsed.scheme.equals("https", ignoreCase = true)) &&
-            !parsed.host.isNullOrBlank()
+            !parsed.host.isNullOrBlank() &&
+            NetworkSecurityPolicy.isAllowedShareUrl(url)
     }.getOrDefault(false)
 }
 

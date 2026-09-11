@@ -27,6 +27,15 @@ data class AvailableFormat(
 ) {
     val requiresFfmpeg: Boolean
         get() = requiresDownscale || companionAudioFormatId != null || mode == DownloadMode.AUDIO_MP3
+
+    val isDataSaver: Boolean
+        get() = (mode == DownloadMode.VIDEO && height in 1..540) ||
+                (mode != DownloadMode.VIDEO && (bitrateKbps in 1..96 || (estimatedSizeBytes ?: Long.MAX_VALUE) <= 500 * 1024L))
+
+    val isPureAudioTrack: Boolean
+        get() = mode != DownloadMode.VIDEO &&
+                companionAudioFormatId == null &&
+                !formatNote.contains("Video source", ignoreCase = true)
 }
 
 data class MediaFormatCatalog(
@@ -131,6 +140,10 @@ sealed interface DownloadState {
     data object Queued : DownloadState {
         override val progress = DownloadProgress(status = "Queued...")
     }
+
+    data class WaitingForWifi(
+        override val progress: DownloadProgress = DownloadProgress(status = "Waiting for Wi-Fi…"),
+    ) : DownloadState
 
     data class Preparing(
         override val progress: DownloadProgress = DownloadProgress(),

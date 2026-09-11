@@ -52,6 +52,7 @@ data class MainUiState(
     val previewMedia: DownloadOutput? = null,
     val wifiOnly: Boolean = false,
     val maxConcurrentDownloads: Int = 3,
+    val allowThirdPartyGateways: Boolean = false,
 ) {
     val activeTaskCount: Int get() = tasks.count(DownloadTask::isActive)
 
@@ -103,6 +104,22 @@ class MainViewModel @JvmOverloads constructor(
         (application as SimpleMediaDownloaderApp).downloadPreferenceStore,
     private val dispatchers: AppDispatchers =
         (application as SimpleMediaDownloaderApp).dispatchers,
+    private val storageExporter: StorageExporter =
+        (application as? SimpleMediaDownloaderApp)?.storageExporter
+            ?: object : StorageExporter {
+                override suspend fun prepareDestination(request: DownloadRequest) =
+                    Result.failure<ExportDestination>(UnsupportedOperationException())
+                override suspend fun exportCompletedFile(
+                    request: DownloadRequest,
+                    destination: ExportDestination,
+                    commandOutput: String,
+                ) = Result.failure<DownloadOutput>(UnsupportedOperationException())
+                override suspend fun cleanup(destination: ExportDestination) {}
+                override suspend fun outputExists(output: DownloadOutput) = false
+                override suspend fun clearDisposableCache(): Long = repository.clearDisposableCache()
+            },
+    private val formatDiscoveryEngine: FormatDiscoveryEngine? =
+        (application as? SimpleMediaDownloaderApp)?.formatDiscoveryEngine,
 ) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
@@ -154,6 +171,11 @@ class MainViewModel @JvmOverloads constructor(
                 _uiState.update { it.copy(vaultViewMode = mode) }
             }
         }
+        viewModelScope.launch {
+            preferenceStore.allowThirdPartyGateways.collect { allowed ->
+                _uiState.update { it.copy(allowThirdPartyGateways = allowed) }
+            }
+        }
     }
 
     fun setTab(tab: NavigationTab) {
@@ -193,11 +215,50 @@ class MainViewModel @JvmOverloads constructor(
         _uiState.update { it.copy(selectedVaultTaskIds = emptySet(), isMultiSelectActive = false) }
     }
 
-    fun deleteSelectedVaultTasks() {
+    fun deleteSelectedVaultTasks(alsoDeleteFiles: Boolean = true) {
         val ids = _uiState.value.selectedVaultTaskIds.toList()
-        clearVaultSelection()
-        ids.forEach { deleteMediaAndHistory(it) }
-        showMessage("Deleted ${ids.size} items from vault.")
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            val failedIds = mutableSetOf<String>()
+            for (taskId in ids) {
+                val result = if (alsoDeleteFiles) {
+                    repository.deleteMediaAndHistory(taskId)
+                } else {
+                    runCatching {
+                        check(repository.removeHistoryEntry(taskId)) {
+                            "Could not remove history entry."
+                        }
+                    }
+                }
+                if (result.isFailure) {
+                    failedIds.add(taskId)
+                }
+            }
+            val successCount = ids.size - failedIds.size
+            _uiState.update { current ->
+                current.copy(
+                    selectedVaultTaskIds = failedIds,
+                    isMultiSelectActive = failedIds.isNotEmpty(),
+                )
+            }
+            if (failedIds.isNotEmpty()) {
+                showMessage("Failed to delete ${failedIds.size} items")
+            } else {
+                showMessage("Deleted $successCount items from vault.")
+            }
+        }
+    }
+
+    private val previewPlaybackPositions = mutableMapOf<String, Long>()
+
+    fun getSavedPreviewPosition(uri: String): Long = previewPlaybackPositions[uri] ?: 0L
+
+    fun savePreviewPosition(uri: String, positionMs: Long) {
+        if (positionMs > 0L) {
+            previewPlaybackPositions[uri] = positionMs
+        } else {
+            previewPlaybackPositions.remove(uri)
+        }
     }
 
     fun setPreviewMedia(output: DownloadOutput?) {
@@ -212,11 +273,16 @@ class MainViewModel @JvmOverloads constructor(
         viewModelScope.launch { preferenceStore.setMaxConcurrentDownloads(limit) }
     }
 
+    fun setAllowThirdPartyGateways(enabled: Boolean) {
+        viewModelScope.launch { preferenceStore.setAllowThirdPartyGateways(enabled) }
+    }
+
     fun clearAppCache() {
         viewModelScope.launch(dispatchers.io) {
-            val cacheDir = getApplication<Application>().cacheDir
-            val count = cacheDir.listFiles()?.count { it.deleteRecursively() } ?: 0
-            showMessage("Cleaned $count temporary cache files.")
+            val bytesFreed = storageExporter.clearDisposableCache()
+            formatDiscoveryEngine?.clearCache() ?: repository.clearFormatCache()
+            val formatted = formatByteCount(bytesFreed)
+            showMessage("Cleaned $formatted of temporary cache")
         }
     }
 
@@ -363,24 +429,64 @@ class MainViewModel @JvmOverloads constructor(
                 )
                 return@launch
             }
-            DownloadService.enqueue(getApplication(), processId)
+            val serviceResult = runCatching {
+                DownloadService.enqueue(
+                    getApplication(),
+                    processId,
+                    concurrency = preferenceStore.maxConcurrentDownloads.value,
+                )
+            }
+            if (serviceResult.isFailure) {
+                val error = serviceResult.exceptionOrNull()
+                repository.failTask(
+                    processId,
+                    message = "Could not start background download service. Tap Retry to try again.",
+                    category = DownloadFailureCategory.UNKNOWN_FAILURE,
+                    technicalDetail = error?.stackTraceToString()?.take(2_000),
+                )
+                showMessage("Could not start background download service. Tap Retry on the task to try again.")
+            }
         }
     }
 
     fun cancel(processId: String) {
         if (_uiState.value.tasks.none { it.id == processId && it.isActive }) return
-        DownloadService.cancel(getApplication(), processId)
+        runCatching {
+            DownloadService.cancel(getApplication(), processId)
+        }.onFailure {
+            showMessage("Could not send cancel request to download service.")
+        }
     }
 
     fun cancelAll() {
         if (_uiState.value.tasks.none(DownloadTask::isActive)) return
-        DownloadService.cancelAll(getApplication())
+        runCatching {
+            DownloadService.cancelAll(getApplication())
+        }.onFailure {
+            showMessage("Could not send cancel request to download service.")
+        }
     }
 
     fun retryTask(taskId: String) {
         viewModelScope.launch {
             if (repository.retry(taskId)) {
-                DownloadService.enqueue(getApplication(), taskId)
+                val serviceResult = runCatching {
+                    DownloadService.enqueue(
+                        getApplication(),
+                        taskId,
+                        concurrency = preferenceStore.maxConcurrentDownloads.value,
+                    )
+                }
+                if (serviceResult.isFailure) {
+                    val error = serviceResult.exceptionOrNull()
+                    repository.failTask(
+                        taskId,
+                        message = "Could not start background download service. Tap Retry to try again.",
+                        category = DownloadFailureCategory.UNKNOWN_FAILURE,
+                        technicalDetail = error?.stackTraceToString()?.take(2_000),
+                    )
+                    showMessage("Could not start background download service. Tap Retry on the task to try again.")
+                }
             } else {
                 showMessage("This download could not be retried.")
             }
@@ -408,7 +514,11 @@ class MainViewModel @JvmOverloads constructor(
 
     fun republishDownloadNotifications() {
         if (_uiState.value.tasks.any(DownloadTask::isActive)) {
-            DownloadService.refresh(getApplication())
+            runCatching {
+                DownloadService.refresh(getApplication())
+            }.onFailure {
+                showMessage("Could not update download service notifications.")
+            }
         }
     }
 

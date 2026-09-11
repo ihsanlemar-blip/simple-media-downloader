@@ -20,30 +20,80 @@ interface DownloadTaskDao {
     @Query(
         """SELECT * FROM download_tasks
            WHERE status IN ('COMPLETED', 'CANCELLED', 'FAILED', 'INTERRUPTED')
-           ORDER BY COALESCE(completed_at, created_at) DESC
-           LIMIT :limit""",
+           ORDER BY COALESCE(completed_at, created_at) DESC""",
     )
-    fun observeRecentHistory(limit: Int = 100): Flow<List<DownloadTaskEntity>>
+    fun observeRecentHistory(): Flow<List<DownloadTaskEntity>>
+
+    @Query(
+        """SELECT * FROM download_tasks
+           WHERE status IN ('COMPLETED', 'CANCELLED', 'FAILED', 'INTERRUPTED')
+           ORDER BY COALESCE(completed_at, created_at) DESC
+           LIMIT :limit OFFSET :offset""",
+    )
+    suspend fun getHistoricalTasks(limit: Int, offset: Int): List<DownloadTaskEntity>
+
+    @Query(
+        """SELECT * FROM download_tasks
+           WHERE status IN ('COMPLETED', 'CANCELLED', 'FAILED', 'INTERRUPTED')
+           AND display_title LIKE '%' || :query || '%'
+           ORDER BY COALESCE(completed_at, created_at) DESC""",
+    )
+    fun searchHistory(query: String): Flow<List<DownloadTaskEntity>>
+
+    @Query(
+        """SELECT * FROM download_tasks
+           WHERE status IN ('COMPLETED', 'CANCELLED', 'FAILED', 'INTERRUPTED')
+           AND display_title LIKE '%' || :query || '%'
+           ORDER BY COALESCE(completed_at, created_at) DESC
+           LIMIT :limit OFFSET :offset""",
+    )
+    suspend fun searchHistoryPaged(query: String, limit: Int, offset: Int): List<DownloadTaskEntity>
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(task: DownloadTaskEntity)
 
     @Query(
         """SELECT COUNT(*) FROM download_tasks
-           WHERE source_url = :sourceUrl AND format_key = :formatKey
+           WHERE canonical_url = :canonicalUrl AND format_key = :formatKey
            AND status IN ('QUEUED', 'RUNNING')""",
     )
-    suspend fun countActiveDuplicate(sourceUrl: String, formatKey: String): Int
+    suspend fun countActiveDuplicate(canonicalUrl: String, formatKey: String): Int
 
     @Transaction
     suspend fun insertIfNoActiveDuplicate(task: DownloadTaskEntity): Boolean {
-        if (countActiveDuplicate(task.sourceUrl, task.formatKey) > 0) return false
-        insert(task)
+        val canonical = if (task.canonicalUrl.isNotBlank()) {
+            task.canonicalUrl
+        } else {
+            NormalizedMediaUrl.from(task.sourceUrl)
+        }
+        if (countActiveDuplicate(canonical, task.formatKey) > 0) return false
+        val toInsert = if (task.canonicalUrl.isBlank()) task.copy(canonicalUrl = canonical) else task
+        insert(toInsert)
         return true
     }
 
     @Update
     suspend fun update(task: DownloadTaskEntity): Int
+
+    @Query(
+        """UPDATE download_tasks SET
+           processing_stage = :stage,
+           progress_percent = :progressPercent,
+           downloaded_bytes = :downloadedBytes,
+           total_bytes = :totalBytes,
+           speed_bytes_per_second = :speedBytesPerSecond,
+           eta_seconds = :etaSeconds
+           WHERE task_id = :taskId AND status = 'RUNNING'""",
+    )
+    suspend fun updateProgress(
+        taskId: String,
+        stage: String,
+        progressPercent: Float?,
+        downloadedBytes: Long?,
+        totalBytes: Long?,
+        speedBytesPerSecond: Long?,
+        etaSeconds: Long?,
+    ): Int
 
     @Query("SELECT * FROM download_tasks WHERE task_id = :taskId")
     suspend fun get(taskId: String): DownloadTaskEntity?
@@ -82,27 +132,8 @@ interface DownloadTaskDao {
         technicalDetail: String,
     ): Int
 
-    @Query(
-        """UPDATE download_tasks SET
-           status = 'QUEUED',
-           processing_stage = 'QUEUED',
-           progress_percent = NULL,
-           downloaded_bytes = NULL,
-           total_bytes = NULL,
-           speed_bytes_per_second = NULL,
-           eta_seconds = NULL,
-           output_content_uri = NULL,
-           output_mime_type = NULL,
-           output_file_size_bytes = NULL,
-           output_display_name = NULL,
-           started_at = NULL,
-           completed_at = NULL,
-           failure_category = NULL,
-           failure_message = NULL,
-           technical_failure_detail = NULL
-           WHERE status = 'INTERRUPTED'""",
-    )
-    suspend fun requeueInterruptedTasks(): Int
+    @Query("SELECT * FROM download_tasks WHERE status = 'INTERRUPTED'")
+    suspend fun getInterruptedTasks(): List<DownloadTaskEntity>
 
     @Query(
         """UPDATE download_tasks SET
@@ -122,10 +153,43 @@ interface DownloadTaskDao {
            failure_category = NULL,
            failure_message = NULL,
            technical_failure_detail = NULL
-           WHERE task_id = :taskId
-           AND status IN ('COMPLETED', 'CANCELLED', 'FAILED', 'INTERRUPTED')""",
+           WHERE task_id = :taskId""",
     )
-    suspend fun retry(taskId: String): Int
+    suspend fun resetToQueued(taskId: String): Int
+
+    @Transaction
+    suspend fun requeueInterruptedTasks(): Int {
+        val interrupted = getInterruptedTasks()
+        var requeued = 0
+        for (task in interrupted) {
+            val canonical = if (task.canonicalUrl.isNotBlank()) {
+                task.canonicalUrl
+            } else {
+                NormalizedMediaUrl.from(task.sourceUrl)
+            }
+            if (countActiveDuplicate(canonical, task.formatKey) == 0) {
+                requeued += resetToQueued(task.taskId)
+            }
+        }
+        return requeued
+    }
+
+    @Transaction
+    suspend fun retry(taskId: String): Int {
+        val task = get(taskId) ?: return 0
+        if (task.status !in listOf("COMPLETED", "CANCELLED", "FAILED", "INTERRUPTED")) {
+            return 0
+        }
+        val canonical = if (task.canonicalUrl.isNotBlank()) {
+            task.canonicalUrl
+        } else {
+            NormalizedMediaUrl.from(task.sourceUrl)
+        }
+        if (countActiveDuplicate(canonical, task.formatKey) > 0) {
+            return 0
+        }
+        return resetToQueued(taskId)
+    }
 
     @Query(
         """DELETE FROM download_tasks

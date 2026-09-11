@@ -1,12 +1,16 @@
 package com.example.simplemediadownloader
 
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.abs
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class DownloadRepository(
     private val formatDiscoveryEngine: FormatDiscoveryEngine,
@@ -15,6 +19,9 @@ class DownloadRepository(
     private val storageExporter: StorageExporter,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
+    private val taskAttemptGenerations = ConcurrentHashMap<String, Long>()
+    private val taskMutexes = ConcurrentHashMap<String, Mutex>()
+
     val activeTasks: Flow<List<DownloadTask>> = historyStore.activeTasks.map { records ->
         records.map(DownloadRecord::toTask)
     }
@@ -55,6 +62,18 @@ class DownloadRepository(
         return formatDiscoveryEngine.discoverFormats(url)
     }
 
+    fun invalidateFormatCatalog(url: String) {
+        formatDiscoveryEngine.invalidate(url)
+    }
+
+    suspend fun refreshFormats(
+        url: String,
+        onState: (DownloadState) -> Unit = {},
+    ): FormatDiscoveryResult {
+        onState(DownloadState.Inspecting())
+        return formatDiscoveryEngine.refreshFormats(url)
+    }
+
     suspend fun enqueue(request: DownloadRequest): Result<Unit> = runCatching {
         val duplicate = historyStore.activeTasks.first().any { record ->
             NormalizedMediaUrl.from(record.sourceUrl) == NormalizedMediaUrl.from(request.url) &&
@@ -89,8 +108,9 @@ class DownloadRepository(
         request: DownloadRequest,
         onState: (DownloadState) -> Unit = {},
     ): DownloadState {
+        val attemptId = taskAttemptGenerations.compute(request.id) { _, current -> (current ?: 0L) + 1L }!!
         ensureRecord(request)
-        publishState(request.id, DownloadState.Preparing(), onState)
+        publishState(request.id, DownloadState.Preparing(), attemptId, onState)
         val destination = storageExporter.prepareDestination(request).getOrElse { error ->
             val mapped = TechnicalFailureMapper.map(
                 error.stackTraceToString(),
@@ -104,19 +124,27 @@ class DownloadRepository(
                     category = mapped.category,
                     technicalDetail = error.stackTraceToString().take(2_000),
                 ),
+                attemptId,
                 onState,
             )
         }
 
         return try {
-            val execution = collectEngineStates(request, destination, onState)
+            val execution = collectEngineStates(request, destination, attemptId, onState)
             when (execution) {
             is DownloadExecutionResult.Success -> {
+                if (taskAttemptGenerations[request.id] != attemptId) {
+                    val finalRecord = historyStore.get(request.id)
+                    if (finalRecord?.status == DownloadTaskStatus.CANCELLED) {
+                        return DownloadState.Cancelled
+                    }
+                }
                 publishState(
                     request.id,
                     DownloadState.Saving(
                         DownloadProgress(status = "Saving media…"),
                     ),
+                    attemptId,
                     onState,
                 )
                 val output = storageExporter.exportCompletedFile(
@@ -136,23 +164,39 @@ class DownloadRepository(
                             category = mapped.category,
                             technicalDetail = error.stackTraceToString().take(2_000),
                         ),
+                        attemptId,
                         onState,
                     )
                 }
-                terminal(request.id, DownloadState.Completed(output), onState)
+                if (taskAttemptGenerations[request.id] != attemptId) {
+                    val finalRecord = historyStore.get(request.id)
+                    if (finalRecord?.status == DownloadTaskStatus.CANCELLED) {
+                        return DownloadState.Cancelled
+                    }
+                }
+                terminal(request.id, DownloadState.Completed(output), attemptId, onState)
             }
 
             DownloadExecutionResult.Cancelled ->
-                terminal(request.id, DownloadState.Cancelled, onState)
-            is DownloadExecutionResult.Failure -> terminal(
-                request.id,
-                DownloadState.Failed(
-                    message = execution.message,
-                    category = execution.category,
-                    technicalDetail = execution.technicalDetail,
-                ),
-                onState,
-            )
+                terminal(request.id, DownloadState.Cancelled, attemptId, onState)
+            is DownloadExecutionResult.Failure -> {
+                if (taskAttemptGenerations[request.id] != attemptId) {
+                    val finalRecord = historyStore.get(request.id)
+                    if (finalRecord?.status == DownloadTaskStatus.CANCELLED) {
+                        return DownloadState.Cancelled
+                    }
+                }
+                terminal(
+                    request.id,
+                    DownloadState.Failed(
+                        message = execution.message,
+                        category = execution.category,
+                        technicalDetail = execution.technicalDetail,
+                    ),
+                    attemptId,
+                    onState,
+                )
+            }
             }
         } finally {
             storageExporter.cleanup(destination)
@@ -173,6 +217,7 @@ class DownloadRepository(
             ?.toRequest()
 
     suspend fun cancel(processId: String): Boolean {
+        taskAttemptGenerations.compute(processId) { _, current -> (current ?: 0L) + 1L }
         val record = historyStore.get(processId) ?: return false
         if (record.status == DownloadTaskStatus.QUEUED) {
             persistState(processId, DownloadState.Cancelled)
@@ -191,6 +236,43 @@ class DownloadRepository(
     suspend fun markInterrupted(taskId: String, technicalDetail: String): Boolean =
         historyStore.interruptTask(taskId, clock(), technicalDetail)
 
+    suspend fun pauseForWifi(taskId: String): Boolean {
+        taskAttemptGenerations.compute(taskId) { _, current -> (current ?: 0L) + 1L }
+        downloadEngine.cancel(taskId)
+        val mutex = taskMutexes.computeIfAbsent(taskId) { Mutex() }
+        return mutex.withLock {
+            val record = historyStore.get(taskId) ?: return false
+            if (record.status == DownloadTaskStatus.RUNNING || record.status == DownloadTaskStatus.QUEUED) {
+                historyStore.update(
+                    record.copy(
+                        status = DownloadTaskStatus.QUEUED,
+                        stage = DownloadProcessingStage.WAITING_FOR_WIFI,
+                        speedBytesPerSecond = null,
+                        etaSeconds = null,
+                    ),
+                )
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    suspend fun markWaitingForWifi(taskId: String): Boolean {
+        val mutex = taskMutexes.computeIfAbsent(taskId) { Mutex() }
+        return mutex.withLock {
+            val record = historyStore.get(taskId) ?: return false
+            if (record.status == DownloadTaskStatus.QUEUED && record.stage != DownloadProcessingStage.WAITING_FOR_WIFI) {
+                historyStore.update(
+                    record.copy(stage = DownloadProcessingStage.WAITING_FOR_WIFI),
+                )
+                true
+            } else {
+                false
+            }
+        }
+    }
+
     suspend fun restoreRecoverableTasks(): List<DownloadRequest> {
         recoverInterruptedTasks()
         historyStore.requeueInterruptedTasks()
@@ -198,6 +280,7 @@ class DownloadRepository(
     }
 
     suspend fun retry(taskId: String): Boolean {
+        taskAttemptGenerations.compute(taskId) { _, current -> (current ?: 0L) + 1L }
         if (!historyStore.retry(taskId)) return false
         return historyStore.get(taskId)?.status == DownloadTaskStatus.QUEUED
     }
@@ -220,39 +303,66 @@ class DownloadRepository(
 
     suspend fun cleanupAbandonedExports(): Int = storageExporter.cleanupAbandonedExports()
 
+    suspend fun clearDisposableCache(): Long = storageExporter.clearDisposableCache()
+
+    fun clearFormatCache() = formatDiscoveryEngine.clearCache()
+
+    fun searchHistory(query: String): Flow<List<DownloadTask>> =
+        historyStore.searchHistory(query).map { list -> list.map(DownloadRecord::toTask) }
+
+    suspend fun getHistoricalTasks(limit: Int, offset: Int): List<DownloadTask> =
+        historyStore.getHistoricalTasks(limit, offset).map(DownloadRecord::toTask)
+
     private suspend fun collectEngineStates(
         request: DownloadRequest,
         destination: ExportDestination,
+        attemptId: Long,
         onState: (DownloadState) -> Unit,
     ): DownloadExecutionResult = coroutineScope {
-        val updates = Channel<DownloadState>(Channel.UNLIMITED)
+        val updates = Channel<DownloadState>(Channel.CONFLATED)
         val writer = launch {
-            var previous: DownloadState? = null
+            var lastPersistTime = 0L
+            var lastPersistedPercentage: Float? = null
+            var lastStage: DownloadProcessingStage? = null
+
             for (state in updates) {
-                if (shouldPersist(previous, state)) {
-                    persistState(request.id, state)
-                    previous = state
+                if (taskAttemptGenerations[request.id] != attemptId) {
+                    break
+                }
+
+                if (state.isTerminal) {
+                    persistState(request.id, state, attemptId)
+                    break
+                }
+
+                val stage = state.toProcessingStage()
+                val now = clock()
+                val percentage = state.progress.percentage
+                val stageChanged = stage != lastStage
+                val timeElapsed = (now - lastPersistTime) >= 1_000L
+                val percentageChangedSignificant = lastPersistedPercentage == null ||
+                    (percentage != null && abs(percentage - lastPersistedPercentage) >= 5.0f)
+
+                if (stageChanged || timeElapsed || percentageChangedSignificant) {
+                    persistProgress(request.id, stage, state.progress, attemptId)
+                    lastPersistTime = now
+                    lastPersistedPercentage = percentage
+                    lastStage = stage
                 }
             }
         }
         val result = try {
             downloadEngine.download(request, destination.directory) { state ->
                 onState(state)
-                updates.trySend(state)
+                if (taskAttemptGenerations[request.id] == attemptId) {
+                    updates.trySend(state)
+                }
             }
         } finally {
             updates.close()
         }
         writer.join()
         result
-    }
-
-    private fun shouldPersist(previous: DownloadState?, current: DownloadState): Boolean {
-        if (previous == null || previous::class != current::class) return true
-        return current.progress.percentage?.toInt() != previous.progress.percentage?.toInt() ||
-            current.progress.downloadedBytes != previous.progress.downloadedBytes ||
-            current.progress.speedBytesPerSecond != previous.progress.speedBytesPerSecond ||
-            current.progress.status != previous.progress.status
     }
 
     private suspend fun ensureRecord(request: DownloadRequest) {
@@ -264,24 +374,54 @@ class DownloadRepository(
     private suspend fun publishState(
         taskId: String,
         state: DownloadState,
+        attemptId: Long? = null,
         onState: (DownloadState) -> Unit,
     ) {
-        persistState(taskId, state)
+        persistState(taskId, state, attemptId)
         onState(state)
     }
 
     private suspend fun terminal(
         taskId: String,
         state: DownloadState,
+        attemptId: Long? = null,
         onState: (DownloadState) -> Unit,
     ): DownloadState {
-        publishState(taskId, state, onState)
+        publishState(taskId, state, attemptId, onState)
         return state
     }
 
-    private suspend fun persistState(taskId: String, state: DownloadState) {
-        val current = historyStore.get(taskId) ?: return
-        historyStore.update(current.transitionTo(state, clock()))
+    private suspend fun persistProgress(
+        taskId: String,
+        stage: DownloadProcessingStage,
+        progress: DownloadProgress,
+        attemptId: Long? = null,
+    ) {
+        val mutex = taskMutexes.computeIfAbsent(taskId) { Mutex() }
+        mutex.withLock {
+            if (attemptId != null && taskAttemptGenerations[taskId] != attemptId) {
+                return
+            }
+            historyStore.updateProgress(taskId, stage, progress)
+        }
+    }
+
+    private suspend fun persistState(
+        taskId: String,
+        state: DownloadState,
+        attemptId: Long? = null,
+    ) {
+        val mutex = taskMutexes.computeIfAbsent(taskId) { Mutex() }
+        mutex.withLock {
+            if (attemptId != null && taskAttemptGenerations[taskId] != attemptId && state !is DownloadState.Cancelled) {
+                return
+            }
+            val current = historyStore.get(taskId) ?: return
+            val updated = current.transitionTo(state, clock())
+            if (updated != current) {
+                historyStore.update(updated)
+            }
+        }
     }
 }
 
@@ -319,11 +459,32 @@ private fun DownloadRecord.toRequest(): DownloadRequest = DownloadRequest(
 )
 
 private fun DownloadRecord.transitionTo(state: DownloadState, now: Long): DownloadRecord {
+    if (status == DownloadTaskStatus.CANCELLED && state !is DownloadState.Cancelled) {
+        return this
+    }
+    if (status == DownloadTaskStatus.COMPLETED && state !is DownloadState.Completed) {
+        return this
+    }
+    if (status == DownloadTaskStatus.FAILED && state !is DownloadState.Failed) {
+        return this
+    }
+    if (status == DownloadTaskStatus.INTERRUPTED && state !is DownloadState.Queued) {
+        return this
+    }
     val progress = state.progress.percentage?.takeIf { it > 0f }
     return when (state) {
         DownloadState.Queued -> copy(
             status = DownloadTaskStatus.QUEUED,
             stage = DownloadProcessingStage.QUEUED,
+            progressPercent = null,
+            downloadedBytes = null,
+            totalBytes = format.estimatedSizeBytes,
+            speedBytesPerSecond = null,
+            etaSeconds = null,
+        )
+        is DownloadState.WaitingForWifi -> copy(
+            status = DownloadTaskStatus.QUEUED,
+            stage = DownloadProcessingStage.WAITING_FOR_WIFI,
             progressPercent = null,
             downloadedBytes = null,
             totalBytes = format.estimatedSizeBytes,
@@ -427,3 +588,22 @@ private fun DownloadRecord.running(
     failureMessage = null,
     technicalFailureDetail = null,
 )
+
+private fun DownloadState.toProcessingStage(): DownloadProcessingStage = when (this) {
+    DownloadState.Queued -> DownloadProcessingStage.QUEUED
+    is DownloadState.WaitingForWifi -> DownloadProcessingStage.WAITING_FOR_WIFI
+    is DownloadState.Preparing -> DownloadProcessingStage.PREPARING
+    is DownloadState.Inspecting -> DownloadProcessingStage.INSPECTING
+    is DownloadState.Downloading -> if (transferKind == DownloadTransferKind.AUDIO) {
+        DownloadProcessingStage.DOWNLOADING_AUDIO
+    } else {
+        DownloadProcessingStage.DOWNLOADING_VIDEO
+    }
+    is DownloadState.Merging -> DownloadProcessingStage.MERGING
+    is DownloadState.Converting -> DownloadProcessingStage.CONVERTING
+    is DownloadState.Saving -> DownloadProcessingStage.SAVING
+    is DownloadState.Completed -> DownloadProcessingStage.COMPLETED
+    DownloadState.Cancelled -> DownloadProcessingStage.CANCELLED
+    is DownloadState.Failed -> DownloadProcessingStage.FAILED
+}
+

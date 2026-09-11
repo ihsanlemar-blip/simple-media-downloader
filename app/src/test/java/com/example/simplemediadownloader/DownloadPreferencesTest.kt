@@ -183,6 +183,18 @@ class DownloadPreferencesTest {
         assertEquals("list", recreatedStore.vaultViewMode.value)
     }
 
+    @Test
+    fun `allow third party gateways preference defaults to false and survives store recreation`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dispatchers = AppDispatchers(io = Dispatchers.Unconfined)
+        val initialStore = SharedPreferencesDownloadPreferenceStore(context, dispatchers)
+        assertFalse(initialStore.allowThirdPartyGateways.value)
+
+        initialStore.setAllowThirdPartyGateways(true)
+        val recreatedStore = SharedPreferencesDownloadPreferenceStore(context, dispatchers)
+        org.junit.Assert.assertTrue(recreatedStore.allowThirdPartyGateways.value)
+    }
+
     private fun video(key: String, height: Int, companionAudio: String? = null) = AvailableFormat(
         key = key,
         mode = DownloadMode.VIDEO,

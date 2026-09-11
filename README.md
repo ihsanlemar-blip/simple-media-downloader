@@ -6,9 +6,9 @@
 > 🚀 **Direct Download**: Grab the latest ready-to-install signed universal APK from GitHub Releases:
 > **[SimpleMediaDownloader-v2.5.0-universal.apk](https://github.com/ihsanlemar-blip/simple-media-downloader/releases/download/v2.5.0/SimpleMediaDownloader-v2.5.0-universal.apk)** *(Supports `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`)*
 
-Simple Media Downloader is a flagship Kotlin and Jetpack Compose Android application for saving publicly accessible media from TikTok, Instagram Reels, Facebook, YouTube, X (Twitter), and Reddit with full metadata and original title preservation. Processing stays on the device through the embedded youtubedl-android stack: yt-dlp, Python, QuickJS, and FFmpeg. It does not use Cobalt or another remote media-processing backend.
+Simple Media Downloader is a flagship Kotlin and Jetpack Compose Android application for saving publicly accessible media from TikTok, Instagram Reels, Facebook, YouTube, X (Twitter), and Reddit with full metadata and original title preservation. Format extraction runs on-device using TeamNewPipe's NewPipeExtractor alongside specialized direct network scrapers. Media streams are downloaded with OkHttp (featuring RFC 7233 range-request validation, automatic continuous fallback, and destination security policies), and audio/video track merging is processed natively on-device using AndroidX Media3 (Transformer and MediaMuxer) without any embedded Python, QuickJS, or yt-dlp binaries.
 
-The app does not bypass DRM, private accounts, authentication, paywalls, or website policy. Source support changes as websites and the bundled extractor change.
+The app does not bypass DRM, private accounts, authentication, paywalls, or website policy. Source support changes as websites and extractor definitions evolve.
 
 ## Architecture
 
@@ -18,39 +18,39 @@ single-screen Compose UI            compact ACTION_SEND text/plain window
         |                                      |
         +---------- ViewModels (commands and Flow UI state) ----------+
                                       |
-                              DownloadRepository
+                               DownloadRepository
                          /            |             \
              format discovery   Room queue/history   MediaStore export
+      (NewPipe + Direct Scrapers)
                                       |
-                              DownloadService
-                       foreground queue owner (2 active)
+                               DownloadService
+                        foreground queue owner (2 active)
                                       |
-                  YtDlpDownloadEngine / lazy FFmpeg initialization
+                   OkHttpDownloadEngine / AndroidX Media3 Muxer
                                       |
-                embedded yt-dlp + Python + QuickJS + FFmpeg processes
+                 direct CDN streams + native container validation
 ```
 
-- `SimpleMediaDownloaderApp` constructs the dependency graph without a DI framework. yt-dlp initializes asynchronously; FFmpeg initializes only for merging or conversion.
+- `SimpleMediaDownloaderApp` constructs the dependency graph without a DI framework. OkHttpClient is hardened with an RFC 6265 destination-scoped cookie jar, DNS rebinding/SSRF protection, and cleartext enforcement.
 - `MainViewModel` and `ShareDownloadViewModel` enqueue commands and observe repository `Flow`s. They do not own downloader processes.
 - `DownloadRepository` coordinates discovery, durable state transitions, export, retry, deletion, duplicate detection, and process-death recovery.
-- `DownloadService` owns queue admission, active yt-dlp/FFmpeg work, cancellation, and rate-limited notifications. The default concurrency is two downloads.
+- `DownloadService` owns queue admission, active OkHttp/Media3 work, cancellation, and rate-limited notifications. The default concurrency is two downloads.
 - `DownloadDatabase` stores durable tasks and history through Room. A running task recovered after process death is requeued instead of remaining incorrectly marked as downloading.
-- `YtDlpProgressParser` is the single parser for structured and legacy yt-dlp progress. Unknown-duration processing is deliberately indeterminate.
-- `DownloadsStorageExporter` writes into an app cache workspace first, then streams the completed file into MediaStore with `IS_PENDING` publication. Failed, cancelled, and abandoned pending exports are cleaned up.
+- `DownloadsStorageExporter` writes into dedicated app cache workspaces first, then streams the completed file into MediaStore with `IS_PENDING` publication. Failed, cancelled, and abandoned pending exports are cleaned up.
 
 ## User experience
 
 - Paste, type, or share a web URL while the embedded engine initializes.
 - Use a saved default choice or choose Simple/Advanced formats.
 - Common presets appear immediately; exact formats and estimated sizes replace them after discovery.
-- See video/audio transfer stage, downloaded and total bytes when known, speed, ETA, merging, conversion, saving, completion, and categorized failures.
+- See video/audio transfer stage, downloaded and total bytes when known, speed, ETA, merging, saving, completion, and categorized failures.
 - Retry failed tasks, cancel one task, confirm Cancel All, open/share results, remove history, or explicitly delete saved media.
 - A shared `text/plain` link opens only the centered share window. Enqueueing is one-shot, and the foreground service continues after that window closes.
 - The interface follows system light/dark mode and Android 12+ dynamic color.
 
 ## Storage
 
-yt-dlp and FFmpeg never write directly to a public filesystem path. Work files are created under the app cache and are removed after success, failure, or cancellation.
+Media streams and temporary muxing files never write directly to a public filesystem path. Work files are isolated in private app cache workspaces and are safely removed after success, failure, or cancellation.
 
 Completed files are streamed through `ContentResolver` into:
 
@@ -72,7 +72,7 @@ Android 13+ notification permission is requested at the download action. If the 
 
 The manifest requests only:
 
-- `INTERNET` — extractor metadata, media transfer, and the optional user-triggered yt-dlp/EJS network operations.
+- `INTERNET` — extractor metadata, direct media transfer, and optional user-consented gateway fallbacks.
 - `POST_NOTIFICATIONS` — progress and completion notifications on Android 13+.
 - `FOREGROUND_SERVICE` — foreground queue execution.
 - `FOREGROUND_SERVICE_DATA_SYNC` — the target-SDK-required data-transfer service type.
@@ -83,9 +83,13 @@ No storage, overlay, cookie, account, location, camera, or microphone permission
 
 There is no custom trust manager or permissive network security configuration. Framework networking therefore uses the target-SDK platform defaults and system trust store. User-provided URLs may be HTTP or HTTPS for extractor compatibility; HTTPS sources are preferred.
 
-## Privacy and production logging
+## Privacy and External Service Policy
 
-Release builds do not write downloader exceptions, source URLs, local paths, or technical output to Logcat. Friendly failure categories are shown normally; bounded technical detail is stored locally with the task only so the user can explicitly expand and copy it. No API keys, cookies, credentials, or test media URLs are packaged by the application code.
+- **No Remote Processing by Default**: The application performs media stream extraction directly between the client device and the target platform using NewPipeExtractor and direct web scrapers.
+- **Third-Party Fallback Gateways (Opt-In Only)**: If direct extraction fails (for instance, when a platform updates anti-scraping protections), the user may choose to enable external fallback gateways (such as Cobalt, TikWM, or FxTwitter) under **Settings → Privacy & External Services**. When enabled, the media URL or post ID is transmitted to the chosen service to discover stream URLs. This toggle is **disabled by default**.
+- **Credential Isolation**: Session cookies and authorization tokens are strictly bound to their origin domain via an RFC 6265 compliant cookie jar and are never transmitted to third-party gateways or across domain boundaries.
+- **SSRF and Rebinding Defenses**: All media requests and redirects are validated against a strict `NetworkSecurityPolicy` / `SafeDns` policy that blocks loopback, link-local, RFC 1918 private IPv4, IPv6 ULA, and cloud metadata endpoints.
+- **Zero Diagnostic Leakage**: Release builds do not write downloader exceptions, source URLs, local paths, or technical output to Logcat. Technical failure detail is kept locally and accessible only when explicitly opened by the user.
 
 ## Build
 
@@ -112,7 +116,7 @@ Outputs:
 
 APK builds contain separate `arm64-v8a` and `x86_64` artifacts. A universal APK is intentionally disabled. The App Bundle lets the store generate ABI-targeted delivery artifacts.
 
-Release builds use `proguard-android-optimize.txt`, R8 minification, and resource shrinking. The youtubedl-android/FFmpeg Java/native bridge packages are explicitly retained because their AARs do not provide consumer rules. Room supplies its own `RoomDatabase` consumer rule, while Compose is statically linked and needs no broad keep rule. A Baseline Profile is not included because one has not been generated and validated from representative journeys on a physical device.
+Release builds use `proguard-android-optimize.txt`, R8 minification, and resource shrinking. Room supplies its own `RoomDatabase` consumer rule, while Compose is statically linked. A Baseline Profile is not included because one has not been generated and validated from representative journeys on a physical device.
 
 Production release APKs and the App Bundle are unsigned unless a distributor supplies a signing configuration. Do not distribute an APK signed with the debug key.
 
@@ -120,19 +124,20 @@ Production release APKs and the App Bundle are unsigned unless a distributor sup
 
 - Kotlin 2.1.20 and Android Gradle Plugin 8.11.1
 - Jetpack Compose BOM 2025.04.01 and Material 3
-- AndroidX Activity Compose and Lifecycle
+- AndroidX Activity Compose and Lifecycle 2.9.0
 - Room 2.8.4 with KSP, coroutine, and Flow support
-- `io.github.junkfood02.youtubedl-android:library:0.18.1`
-- `io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1`
+- `com.github.TeamNewPipe:NewPipeExtractor:v0.26.5`
+- `com.squareup.okhttp3:okhttp:4.12.0`
+- `androidx.media3:media3-transformer:1.5.1`
+- `androidx.media3:media3-muxer:1.5.1`
+- `androidx.media3:media3-exoplayer:1.5.1`
 
-FFmpeg, QuickJS, Python, and yt-dlp remain embedded. Aria2c and remote processing backends are intentionally not included. Fragment concurrency remains four.
+Native AndroidX Media3 handles track muxing on-device. External Python/QuickJS runtimes are not used.
 
 ## Known limitations
 
-- Site support depends on yt-dlp extractors and upstream website behavior. Login-required, private, removed, DRM-protected, rate-limited, or PO-token-restricted media may not download.
-- The optional EJS component may fetch official challenge scripts from the `yt-dlp-ejs` GitHub release and execute them with embedded QuickJS. This is extractor support, not remote media processing.
-- Exact totals and ETA are unavailable for some protocols. The UI never fabricates a percentage when the total is untrusted.
-- Merging and MP3 conversion require lazy FFmpeg initialization and additional temporary storage.
+- Site support depends on platform web changes and NewPipe extractor updates. Login-required, private, removed, DRM-protected, or rate-limited media cannot be downloaded.
+- Audio and video stream muxing requires local processing via AndroidX Media3 Muxer.
 - Android 15 can impose a time budget on `dataSync` foreground services; interrupted tasks are requeued for recovery rather than silently reported as complete.
 - Play Store and individual website policies may restrict downloader distribution or use. Compliance remains the distributor's and user's responsibility.
 
@@ -144,13 +149,13 @@ Local tests cover queue scheduling and recovery, DAO transitions, retries and de
 
 Use authorized public test media and test at least API 29, 33, 34, and 35:
 
-1. Install the APK matching the device ABI and confirm immediate first composition while yt-dlp initializes asynchronously.
+1. Install the APK matching the device ABI and confirm immediate first composition while NewPipe and extraction engines initialize asynchronously.
 2. Verify normal paste/type input and browser `text/plain` sharing. Confirm only the compact share window opens and malformed, oversized, multiple, missing-MIME, and non-text shares are safe.
 3. Deny and grant notification permission. Confirm user-driven enqueueing and foreground-service disclosure behave correctly in both cases.
 4. Start two downloads, close the activity, cancel one from its notification, and confirm the other continues.
 5. Force-stop or kill the process during download, reopen through a user action, and confirm recovery does not leave a task falsely marked downloading.
-6. Exercise progressive video, separate video/audio merging, original audio, MP3 conversion, and a format with unknown total. Verify truthful progress, playable output, and lazy FFmpeg startup.
-7. Cancel during transfer, merge, conversion, and MediaStore saving. Confirm no public partial row or cache workspace remains.
+6. Exercise progressive video, separate video/audio merging, authentic audio streams, extracted audio demuxing, and a format with unknown total. Verify truthful progress, playable output, and native MediaStreamMuxer processing.
+7. Cancel during transfer, merge, audio extraction, and MediaStore saving. Confirm no public partial row or cache workspace remains.
 8. Open and Share both audio and video outputs. Confirm URI grants work without filesystem permission.
 9. Delete output inside the app and outside the app. Confirm explicit deletion and missing-output history behavior.
 10. Verify light/dark themes, dynamic color, TalkBack announcements, large font, tablet share-window width, predictive back, and touch targets.

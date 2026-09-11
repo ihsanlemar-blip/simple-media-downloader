@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -137,10 +138,10 @@ private fun MainAppScaffold(
                         Column {
                             Text(
                                 text = when (state.currentTab) {
-                                    NavigationTab.GATEWAY -> "Simple Media Downloader"
-                                    NavigationTab.TRANSFERS -> "Active Transfers"
-                                    NavigationTab.VAULT -> "Media Vault"
-                                    NavigationTab.SETTINGS -> "Preferences"
+                                    NavigationTab.GATEWAY -> stringResource(R.string.title_gateway)
+                                    NavigationTab.TRANSFERS -> stringResource(R.string.title_transfers)
+                                    NavigationTab.VAULT -> stringResource(R.string.title_vault)
+                                    NavigationTab.SETTINGS -> stringResource(R.string.title_settings)
                                 },
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
@@ -148,10 +149,10 @@ private fun MainAppScaffold(
                             )
                             Text(
                                 text = when (state.currentTab) {
-                                    NavigationTab.GATEWAY -> "Multi-Platform Stream Engine"
-                                    NavigationTab.TRANSFERS -> "${state.activeTaskCount} active download(s)"
-                                    NavigationTab.VAULT -> "${state.filteredVaultTasks.size} saved item(s)"
-                                    NavigationTab.SETTINGS -> "Theme, Concurrency & Cache"
+                                    NavigationTab.GATEWAY -> if (state.backend.ready) stringResource(R.string.subtitle_gateway_ready) else stringResource(R.string.subtitle_gateway_init)
+                                    NavigationTab.TRANSFERS -> stringResource(R.string.subtitle_transfers)
+                                    NavigationTab.VAULT -> stringResource(R.string.subtitle_vault)
+                                    NavigationTab.SETTINGS -> stringResource(R.string.subtitle_settings)
                                 },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -220,7 +221,9 @@ private fun MainAppScaffold(
                             onToggleTaskSelection = viewModel::toggleVaultTaskSelection,
                             onSelectAllTasks = viewModel::selectAllVaultTasks,
                             onClearSelection = viewModel::clearVaultSelection,
-                            onDeleteSelectedTasks = viewModel::deleteSelectedVaultTasks,
+                            onDeleteSelectedTasks = { alsoDeleteFiles ->
+                                viewModel.deleteSelectedVaultTasks(alsoDeleteFiles)
+                            },
                             onPreviewMedia = viewModel::setPreviewMedia,
                             onShareMedia = { result -> shareFile(context, result.output) },
                             onDeleteTask = { pendingDeleteId = it },
@@ -236,6 +239,7 @@ private fun MainAppScaffold(
                             onThemeSelect = viewModel::setThemeMode,
                             onDefaultChoiceSelect = viewModel::setDefaultDownloadChoice,
                             onWifiOnlyToggle = viewModel::setWifiOnly,
+                            onAllowThirdPartyGatewaysToggle = viewModel::setAllowThirdPartyGateways,
                             onMaxConcurrentSelect = viewModel::setMaxConcurrentDownloads,
                             onClearCache = viewModel::clearAppCache,
                             onRetryEngine = viewModel::retryYoutubeDlInitialization,
@@ -263,6 +267,8 @@ private fun MainAppScaffold(
     state.previewMedia?.let { output ->
         MediaPreviewBottomSheet(
             output = output,
+            initialPositionMs = viewModel.getSavedPreviewPosition(output.contentUri),
+            onSavePosition = { pos -> viewModel.savePreviewPosition(output.contentUri, pos) },
             onDismiss = { viewModel.setPreviewMedia(null) },
             onShare = { shareFile(context, output) },
             onOpenExternal = { openFile(context, output) },
@@ -272,9 +278,10 @@ private fun MainAppScaffold(
     // Confirmation Dialogs
     pendingCancelId?.let { taskId ->
         ConfirmationDialog(
-            title = "Cancel transfer?",
-            message = "The active transfer will be stopped and temporary files will be cleaned up.",
-            confirmLabel = "Cancel transfer",
+            title = stringResource(R.string.dialog_cancel_task_title),
+            message = stringResource(R.string.dialog_cancel_task_message),
+            confirmLabel = stringResource(R.string.action_cancel),
+            dismissLabel = stringResource(R.string.action_keep_download),
             onDismiss = { pendingCancelId = null },
             onConfirm = {
                 pendingCancelId = null
@@ -285,9 +292,10 @@ private fun MainAppScaffold(
 
     if (showCancelAllConfirmation) {
         ConfirmationDialog(
-            title = "Cancel all transfers?",
-            message = "Every active and queued transfer will be immediately stopped.",
-            confirmLabel = "Cancel all",
+            title = stringResource(R.string.dialog_cancel_all_title),
+            message = stringResource(R.string.dialog_cancel_all_message),
+            confirmLabel = stringResource(R.string.action_cancel_all),
+            dismissLabel = stringResource(R.string.action_resume_all),
             onDismiss = { showCancelAllConfirmation = false },
             onConfirm = {
                 showCancelAllConfirmation = false
@@ -298,9 +306,10 @@ private fun MainAppScaffold(
 
     pendingRemoveId?.let { taskId ->
         ConfirmationDialog(
-            title = "Remove from history?",
-            message = "The history entry will be removed. The saved media file will remain in storage.",
-            confirmLabel = "Remove",
+            title = stringResource(R.string.dialog_remove_history_title),
+            message = stringResource(R.string.dialog_remove_history_message),
+            confirmLabel = stringResource(R.string.action_remove),
+            dismissLabel = stringResource(R.string.action_keep),
             onDismiss = { pendingRemoveId = null },
             onConfirm = {
                 pendingRemoveId = null
@@ -311,9 +320,10 @@ private fun MainAppScaffold(
 
     pendingDeleteId?.let { taskId ->
         ConfirmationDialog(
-            title = "Delete media file?",
-            message = "The media file and its library entry will be permanently deleted from device storage.",
-            confirmLabel = "Delete",
+            title = stringResource(R.string.dialog_delete_file_title),
+            message = stringResource(R.string.dialog_delete_file_message),
+            confirmLabel = stringResource(R.string.action_delete),
+            dismissLabel = stringResource(R.string.action_keep_file),
             onDismiss = { pendingDeleteId = null },
             onConfirm = {
                 pendingDeleteId = null
@@ -328,6 +338,7 @@ private fun ConfirmationDialog(
     title: String,
     message: String,
     confirmLabel: String,
+    dismissLabel: String = stringResource(R.string.action_keep),
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
@@ -342,7 +353,7 @@ private fun ConfirmationDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Keep") }
+            TextButton(onClick = onDismiss) { Text(dismissLabel) }
         },
     )
 }
@@ -413,13 +424,13 @@ private fun shareFile(context: android.content.Context, output: DownloadOutput) 
             clipData = ClipData.newUri(context.contentResolver, output.displayName, uri)
         }
     context.startActivity(
-        Intent.createChooser(intent, "Share downloaded file")
+        Intent.createChooser(intent, context.getString(R.string.share_file_chooser))
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
     )
 }
 
 private fun copyDetails(context: android.content.Context, details: String) {
     val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
-    clipboard.setPrimaryClip(ClipData.newPlainText("Download error details", details))
-    Toast.makeText(context, "Error details copied to clipboard", Toast.LENGTH_SHORT).show()
+    clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.clipboard_error_details), details))
+    Toast.makeText(context, context.getString(R.string.toast_error_copied), Toast.LENGTH_SHORT).show()
 }

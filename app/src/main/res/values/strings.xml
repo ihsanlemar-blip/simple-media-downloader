@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Simple Media Downloader</string>
+
+    <!-- Navigation Tabs -->
+    <string name="tab_gateway">Link</string>
+    <string name="tab_transfers">Tasks</string>
+    <string name="tab_vault">Vault</string>
+    <string name="tab_settings">Config</string>
+
+    <!-- Top App Bar Titles & Subtitles -->
+    <string name="title_gateway">Simple Media Downloader</string>
+    <string name="title_transfers">Active Transfers</string>
+    <string name="title_vault">Media Vault</string>
+    <string name="title_settings">Preferences</string>
+    <string name="subtitle_gateway_ready">Engine Ready • Universal</string>
+    <string name="subtitle_gateway_init">Engine Initializing…</string>
+    <string name="subtitle_transfers">Active queue &amp; engine status</string>
+    <string name="subtitle_vault">Saved files &amp; offline playback</string>
+    <string name="subtitle_settings">Network, downloads &amp; engine</string>
+
+    <!-- Hero Input Bar -->
+    <string name="media_url_label">Media URL</string>
+    <string name="paste_link_from_clipboard">Paste link from clipboard</string>
+    <string name="url_input_placeholder">Paste TikTok, Instagram, Facebook, YouTube, X…</string>
+    <string name="supports_platforms">Supports 6+ platforms</string>
+    <string name="clear_input">Clear input</string>
+    <string name="paste_from_clipboard">Paste from clipboard</string>
+    <string name="action_explore_formats">Formats</string>
+
+    <!-- Transfers Screen -->
+    <string name="transfer_engine_title">Transfer Engine</string>
+    <string name="action_cancel_all">Cancel All</string>
+    <string name="stat_speed">Speed</string>
+    <string name="stat_active">Active</string>
+    <string name="stat_queued">Queued</string>
+    <string name="no_active_transfers_title">No Active Transfers</string>
+    <string name="no_active_transfers_desc">Your download queue is empty. Paste a media link in the Gateway tab to start downloading.</string>
+    <string name="action_go_to_gateway">Go to Gateway</string>
+
+    <!-- Common Actions & Buttons -->
+    <string name="action_download">Download</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_clean">Clean</string>
+    <string name="action_preview">Preview</string>
+    <string name="action_share">Share</string>
+    <string name="action_open">Open</string>
+    <string name="action_keep">Keep</string>
+    <string name="action_remove">Remove</string>
+    <string name="action_delete">Delete</string>
+
+    <!-- Confirmation Dialogs -->
+    <string name="dialog_cancel_task_title">Cancel Download</string>
+    <string name="dialog_cancel_task_message">Are you sure you want to cancel this transfer? Any partially downloaded file will be removed.</string>
+    <string name="action_keep_download">Keep Download</string>
+    <string name="dialog_cancel_all_title">Cancel All Downloads</string>
+    <string name="dialog_cancel_all_message">Are you sure you want to cancel all active downloads? Partially completed files will be removed.</string>
+    <string name="action_resume_all">Resume All</string>
+    <string name="dialog_remove_history_title">Remove from History</string>
+    <string name="dialog_remove_history_message">Remove this item from your download history? The saved file on disk will NOT be deleted.</string>
+    <string name="dialog_delete_file_title">Delete File Permanently</string>
+    <string name="dialog_delete_file_message">Delete this media file permanently from your device storage? This cannot be undone.</string>
+    <string name="action_keep_file">Keep File</string>
+    <string name="dialog_bulk_delete_title">Delete Selected Files</string>
+    <string name="dialog_bulk_delete_message">Delete %1$d selected media files permanently from device storage? This cannot be undone.</string>
+    <string name="action_keep_files">Keep Files</string>
+    <string name="action_delete_selected">Delete Selected</string>
+    <string name="share_subject">Shared via Simple Media Downloader</string>
+
+    <!-- Vault Screen -->
+    <string name="vault_search_placeholder">Search downloaded media…</string>
+    <string name="action_select_all">Select All</string>
+    <string name="action_clear_selection">Clear</string>
+    <string name="btn_delete_selected">Delete selected (%1$d)</string>
+    <string name="vault_empty_title">Media Vault Empty</string>
+    <string name="vault_empty_desc">Completed downloads and saved media will appear here for offline viewing.</string>
+    <string name="filter_all">All</string>
+    <string name="tab_media_all">All Media</string>
+    <string name="tab_media_video">Videos</string>
+    <string name="tab_media_audio">Audio</string>
+
+    <!-- Gateway Screen -->
+    <string name="backend_alert_title">Engine Degraded</string>
+    <string name="backend_alert_desc">Extractor engine is unavailable or initializing. Direct fallback extractors remain active.</string>
+    <string name="quick_history_title">Quick Save History</string>
+    <string name="quick_history_subtitle">Recent Downloads</string>
+    <string name="action_view_all_vault">View all in Vault</string>
+    <string name="no_recent_downloads">No recent downloads yet</string>
+
+    <!-- Format Picker Bottom Sheet -->
+    <string name="format_picker_title">Choose Media Format</string>
+    <string name="mode_video">Video</string>
+    <string name="mode_video_count">Video (%1$d)</string>
+    <string name="mode_audio_original">Original Audio</string>
+    <string name="mode_audio_mp3">MP3 (320 kbps)</string>
+    <string name="mode_audio_mp3_chip">MP3</string>
+    <string name="choose_resolution">Choose Resolution</string>
+    <string name="choose_quality">Choose Quality</string>
+    <string name="format_recommended">Recommended</string>
+    <string name="format_advanced">Advanced Formats</string>
+    <string name="format_all_streams">All Streams (%1$d)</string>
+    <string name="action_select_format">Select format</string>
+    <string name="format_preview_thumbnail">Media preview thumbnail</string>
+    <string name="format_size_unknown">Size unknown</string>
+
+    <!-- Media Preview Bottom Sheet -->
+    <string name="preview_title">Preview</string>
+    <string name="player_playing">Playing</string>
+    <string name="player_paused">Paused</string>
+    <string name="action_close_preview">Close preview</string>
+    <string name="audio_playback">Audio playback</string>
+    <string name="action_external_app">External App</string>
+    <string name="action_play">Play</string>
+    <string name="preview_error_title">Playback Error</string>
+    <string name="preview_error_file_missing">Media file cannot be found or was removed from device storage.</string>
+    <string name="preview_error_codec_unsupported">This media format or codec is not supported by the preview player.</string>
+    <string name="preview_error_generic">Unable to play media: %1$s</string>
+    <string name="preview_audio_scrubber">Audio playback position</string>
+
+    <!-- History Section & Date Groups -->
+    <string name="history_section_title">History (%1$d)</string>
+    <string name="action_clear_all">Clear all</string>
+    <string name="search_saved_downloads_placeholder">Search saved downloads or creators…</string>
+    <string name="action_clear_search">Clear search</string>
+    <string name="history_empty_search">No matching downloads found</string>
+    <string name="history_empty_all">No finished downloads yet</string>
+    <string name="vault_no_matches">No media matches your search</string>
+    <string name="dialog_bulk_delete_storage_checkbox">Also delete files from device storage</string>
+    <string name="dialog_bulk_delete_storage_files_warning">Files will be permanently deleted from device storage.</string>
+    <string name="dialog_bulk_delete_history_only_warning">Remove from history only. Files will remain on device.</string>
+    <string name="date_group_today">Today</string>
+    <string name="date_group_yesterday">Yesterday</string>
+    <string name="date_group_this_week">Earlier this Week</string>
+    <string name="date_group_older">Older</string>
+    <string name="action_hide_technical_log">Hide technical log</string>
+    <string name="action_view_technical_log">View technical log</string>
+    <string name="action_copy_error_log">Copy error log</string>
+    <string name="action_copy_link">Copy media link</string>
+    <string name="status_download_cancelled">Download cancelled</string>
+    <string name="content_desc_delete_media">Delete media file</string>
+    <string name="content_desc_remove_history">Remove from history</string>
+    <string name="content_desc_remove_entry">Remove entry</string>
+    <string name="share_file_chooser">Share downloaded file</string>
+    <string name="clipboard_error_details">Download error details</string>
+    <string name="toast_error_copied">Error details copied to clipboard</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_section_general">General &amp; Preferences</string>
+    <string name="settings_section_theme">Appearance</string>
+    <string name="settings_section_network">Network &amp; Concurrency</string>
+    <string name="settings_section_privacy">Privacy &amp; External Services</string>
+    <string name="settings_section_storage">Storage &amp; Engine Diagnostics</string>
+    <string name="settings_section_about">About</string>
+    <string name="settings_theme_label">App Theme</string>
+    <string name="settings_theme_system">System Default</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_default_choice_label">Default Download Action</string>
+    <string name="settings_wifi_only_label">Download Over Wi-Fi Only</string>
+    <string name="settings_wifi_only_desc">Pause or queue downloads when connected to cellular data</string>
+    <string name="settings_concurrency_label">Parallel Streams Limit</string>
+    <string name="settings_streams_format">%1$d Streams</string>
+    <string name="settings_allow_gateways_label">Allow third-party fallback extractors</string>
+    <string name="settings_allow_gateways_desc">Allow fallback to external gateway APIs (Cobalt, TikWM, FxTwitter) when direct extraction fails. Media URLs and post IDs are sent to remote services.</string>
+    <string name="settings_cache_label">Temporary Cache</string>
+    <string name="settings_cache_desc">Clear cached format probing responses and temporary chunks</string>
+    <string name="settings_engine_status_label">Engine Status</string>
+    <string name="settings_engine_ready">Ready (Multi-tier extractors active)</string>
+    <string name="settings_engine_degraded">Engine initializing or degraded</string>
+    <string name="settings_app_version_format">Version %1$s (%2$d) • Flagship Multi-Platform Edition</string>
+
+    <!-- Share Download Activity -->
+    <string name="share_dialog_title">Download Shared Link</string>
+    <string name="share_dialog_heading">Download shared media</string>
+    <string name="share_no_url">No usable URL detected</string>
+    <string name="share_checking_link">Checking media link…</string>
+    <string name="share_engine_init">Initializing downloader engine…</string>
+    <string name="share_preparing_engine">Preparing download engine…</string>
+    <string name="share_inspecting_formats">Inspecting available formats…</string>
+    <string name="action_retry_engine">Retry engine</string>
+    <string name="filter_video">Video</string>
+    <string name="filter_audio">Audio</string>
+    <string name="hide_advanced_formats">Hide advanced formats</string>
+    <string name="advanced_formats_count">Advanced formats (%1$d)</string>
+    <string name="share_selected_size">Selected size: %1$s</string>
+    <string name="action_starting">Starting…</string>
+    <string name="share_error_no_format">Choose an available format before downloading.</string>
+
+    <!-- Notifications & Foreground Service -->
+    <string name="notification_channel_name">Media downloads</string>
+    <string name="notification_channel_desc">Live media download progress</string>
+    <string name="notification_preparing_queue">Preparing download queue…</string>
+    <string name="notification_waiting_wifi">Waiting for Wi-Fi…</string>
+    <string name="notification_active_and_queued">%1$d active, %2$d queued</string>
+    <string name="notification_active_downloads">%1$d active downloads</string>
+    <string name="notification_queued_downloads">%1$d queued downloads</string>
+    <string name="notification_finishing_queue">Finishing download queue…</string>
+    <string name="notification_download_completed">Download completed</string>
+    <string name="notification_download_cancelled">Download cancelled</string>
+    <string name="notification_download_stopped">The download was stopped.</string>
+    <string name="notification_download_failed">Download failed</string>
+    <string name="stat_bandwidth">Bandwidth</string>
+    <string name="data_saver_badge">Data Saver</string>
+</resources>
