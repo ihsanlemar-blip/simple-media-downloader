@@ -107,9 +107,10 @@ internal class DownloadsStorageExporter(
                 ?: throw FileNotFoundException(
                     "yt-dlp completed without a final file in the temporary workspace.",
                 )
+            val actualExtension = source.extension.ifBlank { request.format.extension }
             val displayName = MediaExportPolicy.sanitizeDisplayName(
                 source.name,
-                request.format.extension,
+                actualExtension,
             )
             val mimeType = MediaExportPolicy.mimeType(displayName, request.format.mode)
             mediaStoreWriter.write(

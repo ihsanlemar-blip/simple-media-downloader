@@ -107,6 +107,7 @@ class OkHttpDownloadEngine(
     private val dispatchers: AppDispatchers = AppDispatchers(),
     private val client: OkHttpClient = OkHttpClient.Builder().build(),
     private val discoveryEngine: FormatDiscoveryEngine? = null,
+    internal val enforceSecurityPolicy: Boolean = true,
 ) : DownloadEngine {
     private val activeCalls = ConcurrentHashMap<String, MutableSet<Call>>()
     private val cancellationRequests = ConcurrentHashMap.newKeySet<String>()
@@ -142,10 +143,12 @@ class OkHttpDownloadEngine(
     internal fun activeCallCount(taskId: String): Int =
         activeCalls[taskId]?.let { set -> synchronized(set) { set.size } } ?: 0
 
-    private val httpClient: OkHttpClient = client.newBuilder()
-        .dns(SafeDns())
-        .addInterceptor(SecurityInterceptor(allowCleartextHttp = false))
-        .addNetworkInterceptor { chain ->
+    private val httpClient: OkHttpClient = client.newBuilder().apply {
+        if (enforceSecurityPolicy) {
+            dns(SafeDns())
+            addInterceptor(SecurityInterceptor(allowCleartextHttp = false))
+        }
+        addNetworkInterceptor { chain ->
             val req = chain.request()
             val host = req.url.host.lowercase()
             val b = req.newBuilder()
@@ -167,7 +170,7 @@ class OkHttpDownloadEngine(
             }
             chain.proceed(b.build())
         }
-        .build()
+    }.build()
 
     override suspend fun download(
         request: DownloadRequest,
@@ -176,6 +179,13 @@ class OkHttpDownloadEngine(
     ): DownloadExecutionResult = withContext(dispatchers.io) {
         if (cancellationRequests.contains(request.id)) {
             return@withContext DownloadExecutionResult.Cancelled
+        }
+
+        if (enforceSecurityPolicy && !NetworkSecurityPolicy.isAllowedShareUrl(request.url)) {
+            return@withContext DownloadExecutionResult.Failure(
+                message = "The requested URL is not permitted by security policy.",
+                category = DownloadFailureCategory.NETWORK_SECURITY,
+            )
         }
 
         try {
@@ -257,6 +267,21 @@ class OkHttpDownloadEngine(
                 File(outputDirectory, "$baseName.${resolvedFormat.extension}")
             }
             var actualExtension = if (isMuxing) "mp4" else resolvedFormat.extension
+
+            if (enforceSecurityPolicy && !NetworkSecurityPolicy.isAllowedMediaUrl(resolvedFormat.formatId, allowCleartextHttp = false)) {
+                return@withContext DownloadExecutionResult.Failure(
+                    message = "The resolved stream URL is not permitted by network security policy.",
+                    category = DownloadFailureCategory.NETWORK_SECURITY,
+                )
+            }
+            if (enforceSecurityPolicy && resolvedFormat.companionAudioFormatId != null &&
+                !NetworkSecurityPolicy.isAllowedMediaUrl(resolvedFormat.companionAudioFormatId!!, allowCleartextHttp = false)
+            ) {
+                return@withContext DownloadExecutionResult.Failure(
+                    message = "The companion audio stream URL is not permitted by network security policy.",
+                    category = DownloadFailureCategory.NETWORK_SECURITY,
+                )
+            }
 
             var downloadAttempts = 0
             while (downloadAttempts < 2) {
@@ -443,6 +468,14 @@ class OkHttpDownloadEngine(
                                 selectBestAudioFormat(freshDiscovery.catalog, resolvedFormat.mode, resolvedFormat.bitrateKbps, resolvedFormat.key)
                             }
                             if (freshMatching != null && freshMatching.formatId.isNotBlank()) {
+                                if (enforceSecurityPolicy && !NetworkSecurityPolicy.isAllowedMediaUrl(freshMatching.formatId, allowCleartextHttp = false)) {
+                                    throw java.io.IOException("Refreshed stream URL is blocked by network security policy")
+                                }
+                                if (enforceSecurityPolicy && freshMatching.companionAudioFormatId != null &&
+                                    !NetworkSecurityPolicy.isAllowedMediaUrl(freshMatching.companionAudioFormatId!!, allowCleartextHttp = false)
+                                ) {
+                                    throw java.io.IOException("Refreshed companion audio URL is blocked by network security policy")
+                                }
                                 resolvedFormat = resolvedFormat.copy(
                                     formatId = freshMatching.formatId,
                                     companionAudioFormatId = freshMatching.companionAudioFormatId ?: resolvedFormat.companionAudioFormatId,
@@ -515,8 +548,10 @@ class OkHttpDownloadEngine(
                 )
                 return
             } catch (e: CancellationException) {
+                destinationFile.delete()
                 throw e
             } catch (_: Exception) {
+                destinationFile.delete()
                 if (cancellationRequests.contains(taskId)) {
                     throw CancellationException("Download cancelled")
                 }
@@ -636,6 +671,7 @@ class OkHttpDownloadEngine(
             raf.setLength(0L)
             while (currentStart < totalBytes) {
                 if (cancellationRequests.contains(taskId)) {
+                    destinationFile.delete()
                     throw CancellationException("Download cancelled")
                 }
 
@@ -646,6 +682,7 @@ class OkHttpDownloadEngine(
 
                 while (!chunkSuccess && attempts < 3) {
                     if (cancellationRequests.contains(taskId)) {
+                        destinationFile.delete()
                         throw CancellationException("Download cancelled")
                     }
                     attempts++
@@ -662,6 +699,7 @@ class OkHttpDownloadEngine(
                     val chunkRequest = chunkRequestBuilder.build()
                     val call = httpClient.newCall(chunkRequest)
                     if (!registerCall(taskId, call)) {
+                        destinationFile.delete()
                         throw CancellationException("Download cancelled")
                     }
 
@@ -669,19 +707,32 @@ class OkHttpDownloadEngine(
                         call.execute().use { response ->
                             if (response.code == 200) {
                                 // Server ignored Range and returned full file: restart as single continuous stream
+                                val ct = response.header("Content-Type").orEmpty().lowercase(Locale.US)
+                                if (ct.startsWith("text/html") || ct.startsWith("application/json") || ct.startsWith("application/xml")) {
+                                    throw java.io.IOException("Server returned non-media Content-Type ($ct) on 200 fallback")
+                                }
                                 val body = response.body ?: throw java.io.IOException("Empty response body for full download")
+                                val expected200Bytes = body.contentLength().takeIf { it > 0 } ?: totalBytes
                                 raf.setLength(0)
                                 raf.seek(0)
                                 downloadedBytes = 0L
                                 body.byteStream().use { streamIn ->
                                     val buffer = ByteArray(64 * 1024)
+                                    var firstBuffer = true
                                     while (true) {
                                         if (cancellationRequests.contains(taskId)) {
                                             call.cancel()
+                                            destinationFile.delete()
                                             throw CancellationException("Download cancelled")
                                         }
                                         val read = streamIn.read(buffer)
                                         if (read < 0) break
+                                        if (firstBuffer) {
+                                            if (isObviousNonMediaPayload(buffer, read)) {
+                                                throw java.io.IOException("Stream returned non-media payload (HTML/JSON/XML) on 200 fallback")
+                                            }
+                                            firstBuffer = false
+                                        }
                                         raf.write(buffer, 0, read)
                                         downloadedBytes += read
 
@@ -690,15 +741,17 @@ class OkHttpDownloadEngine(
                                             val durationSec = (now - lastUpdateAt) / 1000.0
                                             val bytesSince = downloadedBytes - lastBytesAtUpdate
                                             val speed = if (durationSec > 0) (bytesSince / durationSec).toLong() else 0L
-                                            val eta = if (speed > 0) {
-                                                (totalBytes - downloadedBytes).coerceAtLeast(0) / speed
+                                            val eta = if (speed > 0 && expected200Bytes > 0) {
+                                                (expected200Bytes - downloadedBytes).coerceAtLeast(0) / speed
                                             } else null
-                                            val percent = (downloadedBytes.toDouble() * 100.0 / totalBytes.toDouble()).toFloat()
+                                            val percent = if (expected200Bytes > 0) {
+                                                (downloadedBytes.toDouble() * 100.0 / expected200Bytes.toDouble()).toFloat()
+                                            } else 0f
 
                                             val progress = DownloadProgress(
                                                 percentage = percent,
                                                 downloadedBytes = downloadedBytes,
-                                                totalBytes = totalBytes,
+                                                totalBytes = expected200Bytes,
                                                 speedBytesPerSecond = speed,
                                                 etaSeconds = eta,
                                                 status = if (transferKind == DownloadTransferKind.VIDEO) {
@@ -713,6 +766,10 @@ class OkHttpDownloadEngine(
                                         }
                                     }
                                 }
+                                if (expected200Bytes > 0 && downloadedBytes != expected200Bytes) {
+                                    raf.setLength(0)
+                                    throw java.io.IOException("200 fallback received $downloadedBytes bytes, expected $expected200Bytes bytes")
+                                }
                                 chunkSuccess = true
                                 return
                             }
@@ -721,16 +778,29 @@ class OkHttpDownloadEngine(
                                 throw java.io.IOException("HTTP error ${response.code} for chunk $currentStart-$currentEnd")
                             }
 
-                            // Validate Content-Range header
+                            // Validate Content-Type
+                            val ct = response.header("Content-Type").orEmpty().lowercase(Locale.US)
+                            if (ct.startsWith("text/html") || ct.startsWith("application/json") || ct.startsWith("application/xml")) {
+                                throw java.io.IOException("Stream returned non-media Content-Type ($ct) during ranged download")
+                            }
+
+                            // Strictly validate required Content-Range header
                             val contentRange = response.header("Content-Range")
-                            if (contentRange != null) {
-                                val match = Regex("""bytes\s+(\d+)-(\d+)/(?:(\d+)|\*)""").find(contentRange)
-                                if (match != null) {
-                                    val rangeStart = match.groupValues[1].toLong()
-                                    if (rangeStart != currentStart) {
-                                        throw java.io.IOException("Content-Range start $rangeStart does not match expected offset $currentStart")
-                                    }
-                                }
+                                ?: throw java.io.IOException("HTTP 206 response missing required Content-Range header")
+                            val match = Regex("""^bytes\s+(\d+)-(\d+)/(?:(\d+)|\*)$""").find(contentRange.trim())
+                                ?: throw java.io.IOException("Malformed Content-Range header: '$contentRange'")
+                            val rangeStart = match.groupValues[1].toLong()
+                            val rangeEnd = match.groupValues[2].toLong()
+                            val rangeTotal = match.groupValues[3].takeIf { it.isNotBlank() }?.toLongOrNull()
+
+                            if (rangeStart != currentStart) {
+                                throw java.io.IOException("Content-Range start $rangeStart does not match expected offset $currentStart")
+                            }
+                            if (rangeEnd != currentEnd) {
+                                throw java.io.IOException("Content-Range end $rangeEnd does not match expected offset $currentEnd")
+                            }
+                            if (rangeTotal != null && rangeTotal != totalBytes) {
+                                throw java.io.IOException("Content-Range total $rangeTotal does not match expected total $totalBytes")
                             }
 
                             // Verify entity representation consistency
@@ -742,7 +812,7 @@ class OkHttpDownloadEngine(
                             }
                             if (activeLastModified == null && responseLastModified != null) activeLastModified = responseLastModified
                             else if (activeLastModified != null && responseLastModified != null && activeLastModified != responseLastModified) {
-                                throw java.io.IOException("Last-Modified changed during ranged download")
+                                throw java.io.IOException("Last-Modified changed from $activeLastModified to $responseLastModified during ranged download")
                             }
 
                             val body = response.body ?: throw java.io.IOException("Empty response body for chunk")
@@ -751,14 +821,22 @@ class OkHttpDownloadEngine(
                                 val buffer = ByteArray(64 * 1024)
                                 var chunkBytesRead = 0L
                                 val maxBytesExpected = currentEnd - currentStart + 1
+                                var firstChunkBuffer = true
                                 while (chunkBytesRead < maxBytesExpected) {
                                     if (cancellationRequests.contains(taskId)) {
                                         call.cancel()
+                                        destinationFile.delete()
                                         throw CancellationException("Download cancelled")
                                     }
                                     val toRead = (maxBytesExpected - chunkBytesRead).coerceAtMost(buffer.size.toLong()).toInt()
                                     val read = streamIn.read(buffer, 0, toRead)
                                     if (read < 0) break
+                                    if (firstChunkBuffer && currentStart == 0L) {
+                                        if (isObviousNonMediaPayload(buffer, read)) {
+                                            throw java.io.IOException("Stream returned non-media payload (HTML/JSON/XML) in first chunk")
+                                        }
+                                        firstChunkBuffer = false
+                                    }
                                     raf.write(buffer, 0, read)
                                     chunkBytesRead += read
                                     downloadedBytes = currentStart + chunkBytesRead
@@ -791,8 +869,8 @@ class OkHttpDownloadEngine(
                                     }
                                 }
 
-                                if (chunkBytesRead < maxBytesExpected && (currentStart + chunkBytesRead) < totalBytes) {
-                                    throw java.io.IOException("Premature EOF: chunk received only $chunkBytesRead bytes out of $maxBytesExpected")
+                                if (chunkBytesRead != maxBytesExpected) {
+                                    throw java.io.IOException("Chunk byte count mismatch: read $chunkBytesRead bytes, expected $maxBytesExpected bytes")
                                 }
                                 currentStart += chunkBytesRead
                             }
@@ -816,6 +894,11 @@ class OkHttpDownloadEngine(
                     throw lastChunkException ?: java.io.IOException("Failed downloading chunk $currentStart-$currentEnd after 3 attempts")
                 }
             }
+
+            if (destinationFile.length() != totalBytes) {
+                destinationFile.delete()
+                throw java.io.IOException("Final downloaded size (${destinationFile.length()} bytes) does not match expected size ($totalBytes bytes)")
+            }
         }
     }
 
@@ -838,6 +921,7 @@ class OkHttpDownloadEngine(
         val httpRequest = httpRequestBuilder.build()
         val call = httpClient.newCall(httpRequest)
         if (!registerCall(taskId, call)) {
+            destinationFile.delete()
             throw CancellationException("Download cancelled")
         }
 
@@ -846,9 +930,11 @@ class OkHttpDownloadEngine(
                 if (!response.isSuccessful) {
                     throw java.io.IOException("HTTP error ${response.code}: ${response.message}")
                 }
-                val ct = response.header("Content-Type").orEmpty().lowercase()
-                if (ct.contains("text/html")) {
-                    throw java.io.IOException("Stream URL returned an HTML page ($ct) instead of a media stream.")
+                val ct = response.header("Content-Type").orEmpty().lowercase(Locale.US)
+                if (ct.startsWith("text/html") || ct.startsWith("application/json") || ct.startsWith("application/problem+json") ||
+                    ct.startsWith("application/xml") || ct.startsWith("text/xml") || ct.contains("vnd.apple.mpegurl")
+                ) {
+                    throw java.io.IOException("Stream URL returned non-media response ($ct) instead of a media stream.")
                 }
 
                 val body = response.body ?: throw java.io.IOException("Empty response body")
@@ -860,13 +946,21 @@ class OkHttpDownloadEngine(
                 destinationFile.outputStream().use { fileOut ->
                     body.byteStream().use { streamIn ->
                         val buffer = ByteArray(256 * 1024)
+                        var firstBuffer = true
                         while (true) {
                             if (cancellationRequests.contains(taskId)) {
                                 call.cancel()
+                                destinationFile.delete()
                                 throw CancellationException("Download cancelled")
                             }
                             val read = streamIn.read(buffer)
                             if (read < 0) break
+                            if (firstBuffer) {
+                                if (isObviousNonMediaPayload(buffer, read)) {
+                                    throw java.io.IOException("Stream returned non-media payload (HTML/JSON/XML error) instead of media stream.")
+                                }
+                                firstBuffer = false
+                            }
                             fileOut.write(buffer, 0, read)
                             downloadedBytes += read
 
@@ -901,10 +995,32 @@ class OkHttpDownloadEngine(
                         }
                     }
                 }
+
+                if (totalBytes != null && downloadedBytes != totalBytes) {
+                    destinationFile.delete()
+                    throw java.io.IOException("Downloaded size ($downloadedBytes bytes) does not match expected size ($totalBytes bytes)")
+                }
+                if (destinationFile.length() != downloadedBytes) {
+                    destinationFile.delete()
+                    throw java.io.IOException("Written file size (${destinationFile.length()} bytes) does not match transferred bytes ($downloadedBytes bytes)")
+                }
             }
+        } catch (e: Exception) {
+            destinationFile.delete()
+            throw e
         } finally {
             unregisterCall(taskId, call)
         }
+    }
+
+    internal fun isObviousNonMediaPayload(bytes: ByteArray, length: Int): Boolean {
+        if (length < 4) return false
+        val prefix = String(bytes, 0, minOf(length, 512), Charsets.ISO_8859_1).trimStart().lowercase(Locale.US)
+        return prefix.startsWith("<!doctype html") ||
+            prefix.startsWith("<html") ||
+            prefix.startsWith("<?xml") ||
+            prefix.startsWith("<error") ||
+            (prefix.startsWith("{") && (prefix.contains("\"error\"") || prefix.contains("\"message\"") || prefix.contains("\"status\"") || prefix.contains("\"code\"")))
     }
 
     internal fun detectAudioContainer(file: File): String? {
@@ -1029,7 +1145,11 @@ class OkHttpDownloadEngine(
             (headerBytes.size >= 4 && headerBytes[0] == 'f'.code.toByte() && headerBytes[1] == 'L'.code.toByte() && headerBytes[2] == 'a'.code.toByte() && headerBytes[3] == 'C'.code.toByte()) ||
             (headerBytes.size >= 2 && (headerBytes[0].toInt() and 0xFF) == 0xFF && (headerBytes[1].toInt() and 0xF0) == 0xF0)
 
-        val isValidContainer = isDirectMatch || (ext in listOf("mp3", "m4a", "webm", "ogg", "opus", "aac") && isAnyValidAudioContainer)
+        val isValidContainer = when (ext) {
+            "mp3" -> isDirectMatch
+            in listOf("m4a", "webm", "ogg", "opus", "aac") -> isDirectMatch || isAnyValidAudioContainer
+            else -> isDirectMatch
+        }
 
         if (!isValidContainer) {
             return DownloadExecutionResult.Failure(

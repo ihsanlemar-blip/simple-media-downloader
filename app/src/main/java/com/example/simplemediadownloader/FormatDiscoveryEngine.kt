@@ -46,20 +46,10 @@ class NewPipeFormatDiscoveryEngine(
                 mode = DownloadMode.AUDIO_ORIGINAL,
                 formatId = "quick-audio-original",
                 extension = "m4a",
-                formatNote = "No conversion",
+                formatNote = "Best Audio",
                 isQuickPreset = true,
             ),
-        ) + QUICK_AUDIO_BITRATES.map { bitrate ->
-            AvailableFormat(
-                key = "quick-audio-$bitrate",
-                mode = DownloadMode.AUDIO_MP3,
-                formatId = "quick-audio-$bitrate",
-                extension = "mp3",
-                bitrateKbps = bitrate,
-                formatNote = "Exact size loading",
-                isQuickPreset = true,
-            )
-        },
+        ),
         detailsLoading = true,
     )
 
@@ -140,26 +130,15 @@ class NewPipeFormatDiscoveryEngine(
             )
         val videoFormats = buildResolutionLadder(allVideos)
 
-        val originalAudioFormats = audioStreams
+        val audioFormats = audioStreams
             .map { raw ->
-                audioOption(raw, DownloadMode.AUDIO_ORIGINAL, durationSeconds)
-            }
-
-        val mp3AudioFormats = listOf(64, 128, 192, 320).mapNotNull { targetBitrate ->
-            val closestStream = audioStreams.minByOrNull { kotlin.math.abs(it.averageBitrate - targetBitrate) }
-                ?: audioStreams.firstOrNull()
-            closestStream?.let { raw ->
-                val nativeExt = raw.format?.suffix?.lowercase() ?: "m4a"
-                audioOption(raw, DownloadMode.AUDIO_MP3, durationSeconds).copy(
-                    key = "audio:mp3:$targetBitrate",
-                    extension = nativeExt,
-                    bitrateKbps = targetBitrate,
-                    formatNote = if (targetBitrate <= 64) "Data Saver Audio" else "${targetBitrate} kbps Audio",
+                val isMp3 = raw.format?.suffix?.equals("mp3", ignoreCase = true) == true
+                audioOption(
+                    raw,
+                    if (isMp3) DownloadMode.AUDIO_MP3 else DownloadMode.AUDIO_ORIGINAL,
+                    durationSeconds,
                 )
             }
-        }
-
-        val audioFormats = (originalAudioFormats + mp3AudioFormats)
             .distinctBy {
                 listOf(it.mode, it.bitrateKbps, it.codec, it.extension)
             }
@@ -299,6 +278,5 @@ class NewPipeFormatDiscoveryEngine(
 
     companion object {
         private val QUICK_OUTPUT_HEIGHTS = listOf(2160, 1440, 1080, 720, 480, 360, 240, 144)
-        private val QUICK_AUDIO_BITRATES = listOf(320, 256, 192, 128, 96)
     }
 }

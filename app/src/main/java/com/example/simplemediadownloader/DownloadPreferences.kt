@@ -17,8 +17,7 @@ enum class DefaultDownloadChoice(
     VIDEO_1080("1080p", "Download 1080p"),
     VIDEO_720("720p", "Download 720p"),
     VIDEO_480("480p", "Download 480p"),
-    ORIGINAL_AUDIO("Original audio", "Download audio"),
-    MP3("MP3", "Download MP3"),
+    ORIGINAL_AUDIO("Audio", "Download audio"),
     ;
 
     val targetHeight: Int?
@@ -31,7 +30,10 @@ enum class DefaultDownloadChoice(
 
     companion object {
         fun fromStored(value: String?): DefaultDownloadChoice =
-            entries.firstOrNull { it.name == value } ?: BEST_VIDEO
+            when (value) {
+                "MP3" -> ORIGINAL_AUDIO
+                else -> entries.firstOrNull { it.name == value } ?: BEST_VIDEO
+            }
     }
 }
 
@@ -201,17 +203,10 @@ internal object DefaultDownloadChoiceMapper {
         )
         DefaultDownloadChoice.ORIGINAL_AUDIO -> catalog.audioFormats
             .asSequence()
-            .filter { it.mode == DownloadMode.AUDIO_ORIGINAL }
+            .filter { it.mode == DownloadMode.AUDIO_ORIGINAL || it.mode == DownloadMode.AUDIO_MP3 }
             .maxWithOrNull(
                 compareBy<AvailableFormat> { it.bitrateKbps }
                     .thenBy { it.estimatedSizeBytes ?: 0L },
-            )
-        DefaultDownloadChoice.MP3 -> catalog.audioFormats
-            .asSequence()
-            .filter { it.mode == DownloadMode.AUDIO_MP3 }
-            .minWithOrNull(
-                compareBy<AvailableFormat> { abs(it.bitrateKbps - DEFAULT_MP3_BITRATE) }
-                    .thenByDescending { it.bitrateKbps },
             )
     }
 
@@ -233,6 +228,4 @@ internal object DefaultDownloadChoiceMapper {
         .thenBy { it.width }
         .thenBy { it.fps }
         .thenBy { it.bitrateKbps }
-
-    private const val DEFAULT_MP3_BITRATE = 192
 }

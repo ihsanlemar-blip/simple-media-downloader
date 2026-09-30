@@ -19,6 +19,7 @@ class ScopedCookieJar(
         val domain: String,
         val path: String,
         val name: String,
+        val hostOnly: Boolean,
     )
 
     private val storage = ConcurrentHashMap<CookieKey, Cookie>()
@@ -30,6 +31,7 @@ class ScopedCookieJar(
                 domain = cookie.domain.lowercase(),
                 path = cookie.path,
                 name = cookie.name,
+                hostOnly = cookie.hostOnly,
             )
             if (cookie.expiresAt <= now) {
                 storage.remove(key)
@@ -80,13 +82,10 @@ class ScopedCookieJar(
     }
 
     /**
-     * Formats all currently valid, unexpired cookies into a standard HTTP Cookie header string.
+     * Deprecated: Leaks cookies across domains. Use [getCookieHeader] with destination URL instead.
      */
-    fun getAllCookieHeader(): String {
-        val now = clock()
-        pruneExpired(now)
-        return storage.values.filter { it.expiresAt > now }.joinToString("; ") { "${it.name}=${it.value}" }
-    }
+    @Deprecated("Do not use getAllCookieHeader: violates RFC 6265 cookie scoping and leaks cookies across domains")
+    fun getAllCookieHeader(): String = ""
 
     val size: Int
         get() {

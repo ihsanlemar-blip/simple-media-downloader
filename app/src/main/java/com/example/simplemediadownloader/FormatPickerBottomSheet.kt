@@ -263,23 +263,25 @@ fun FormatPickerBottomSheet(
                     label = { Text(stringResource(R.string.mode_audio_original), fontWeight = FontWeight.SemiBold) },
                     shape = RoundedCornerShape(12.dp),
                 )
-                FilterChip(
-                    selected = mode == DownloadMode.AUDIO_MP3,
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        mode = DownloadMode.AUDIO_MP3
-                    },
-                    enabled = catalog.audioFormats.any { it.mode == DownloadMode.AUDIO_MP3 },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Rounded.AudioFile,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                    },
-                    label = { Text(stringResource(R.string.mode_audio_mp3_chip), fontWeight = FontWeight.SemiBold) },
-                    shape = RoundedCornerShape(12.dp),
-                )
+                if (catalog.audioFormats.any { it.mode == DownloadMode.AUDIO_MP3 }) {
+                    FilterChip(
+                        selected = mode == DownloadMode.AUDIO_MP3,
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            mode = DownloadMode.AUDIO_MP3
+                        },
+                        enabled = true,
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.AudioFile,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
+                        label = { Text(stringResource(R.string.mode_audio_mp3_chip), fontWeight = FontWeight.SemiBold) },
+                        shape = RoundedCornerShape(12.dp),
+                    )
+                }
             }
 
             // Simple vs Advanced Stream Switcher
@@ -378,7 +380,7 @@ fun FormatRadioCard(
             if (format.fps > 0) append(" • ${format.fps} fps")
         }
         DownloadMode.AUDIO_ORIGINAL -> buildString {
-            append("Original Audio Track")
+            append("${format.extension.uppercase(Locale.US)} Audio")
             if (format.bitrateKbps > 0) append(" • ${format.bitrateKbps} kbps")
         }
         DownloadMode.AUDIO_MP3 -> if (format.bitrateKbps > 0) "${format.bitrateKbps} kbps MP3 Audio" else "Standard MP3 Audio"

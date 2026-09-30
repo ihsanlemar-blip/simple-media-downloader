@@ -212,7 +212,7 @@ class DownloadEngineValidationTest {
     }
 
     @Test
-    fun `accepts authentic M4A stream even if expectedExtension was mp3`() {
+    fun `rejects M4A stream when expectedExtension is mp3`() {
         val m4aAudioFile = tempFolder.newFile("audio_as_mp3.mp3")
         val bytes = ByteArray(2048)
         bytes[4] = 'f'.code.toByte()
@@ -221,8 +221,9 @@ class DownloadEngineValidationTest {
         bytes[7] = 'p'.code.toByte()
         m4aAudioFile.writeBytes(bytes)
 
-        // Validates that upstream M4A/AAC streams delivered under an MP3 preset do not fail
+        // Validates that an M4A stream cannot masquerade as MP3
         val error = engine.validateMediaFile(m4aAudioFile, "mp3")
-        assertNull(error)
+        assertNotNull(error)
+        assertEquals(DownloadFailureCategory.CONVERTER_FAILURE, error?.category)
     }
 }

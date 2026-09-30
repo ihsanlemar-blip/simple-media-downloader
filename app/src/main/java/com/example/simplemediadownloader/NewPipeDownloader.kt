@@ -71,7 +71,7 @@ class OkHttpNewPipeDownloader(
             cookieJar.setCookie(url, cookieHeader)
         }
 
-        val responseBody = okHttpResponse.body?.string().orEmpty()
+        val responseBody = okHttpResponse.body?.readBoundedString().orEmpty()
 
         return Response(
             okHttpResponse.code,

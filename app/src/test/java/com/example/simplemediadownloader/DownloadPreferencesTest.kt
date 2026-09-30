@@ -92,16 +92,12 @@ class DownloadPreferencesTest {
     @Test
     fun `audio and always ask preferences map to their intended action`() {
         assertSame(
-            originalAudio,
+            mp3,
             DefaultDownloadChoiceMapper.select(
                 DefaultDownloadChoice.ORIGINAL_AUDIO,
                 catalog,
                 fallback,
             ),
-        )
-        assertSame(
-            mp3,
-            DefaultDownloadChoiceMapper.select(DefaultDownloadChoice.MP3, catalog, fallback),
         )
         assertNull(
             DefaultDownloadChoiceMapper.select(
@@ -109,6 +105,14 @@ class DownloadPreferencesTest {
                 catalog,
                 fallback,
             ),
+        )
+    }
+
+    @Test
+    fun `legacy MP3 preference migrates to ORIGINAL_AUDIO`() {
+        assertEquals(
+            DefaultDownloadChoice.ORIGINAL_AUDIO,
+            DefaultDownloadChoice.fromStored("MP3"),
         )
     }
 

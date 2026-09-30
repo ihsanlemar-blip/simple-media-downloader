@@ -41,6 +41,72 @@ class ScopedCookieJarTest {
     }
 
     @Test
+    fun `host-only cookies are not shared with other subdomains or parent domain`() {
+        val specificHostUrl = "https://m.tiktok.com/v/123".toHttpUrl()
+        val otherSubdomainUrl = "https://www.tiktok.com/v/123".toHttpUrl()
+        val parentDomainUrl = "https://tiktok.com/v/123".toHttpUrl()
+
+        // Cookie parsed from Set-Cookie without Domain attribute is hostOnly
+        val hostOnlyCookie = Cookie.parse(specificHostUrl, "host_sid=abc12345; Path=/")!!
+        assertTrue(hostOnlyCookie.hostOnly)
+
+        cookieJar.saveFromResponse(specificHostUrl, listOf(hostOnlyCookie))
+
+        // Matches exactly m.tiktok.com
+        val matched = cookieJar.loadForRequest(specificHostUrl)
+        assertEquals(1, matched.size)
+        assertEquals("host_sid", matched[0].name)
+
+        // Does NOT match www.tiktok.com or tiktok.com
+        assertTrue(cookieJar.loadForRequest(otherSubdomainUrl).isEmpty())
+        assertTrue(cookieJar.loadForRequest(parentDomainUrl).isEmpty())
+    }
+
+    @Test
+    fun `tiktok cookies are never sent to unrelated CDNs or third-party gateways`() {
+        val tiktokUrl = "https://www.tiktok.com/video/789".toHttpUrl()
+        val cdnUrl = "https://unrelated-cdn.akamaized.net/stream.mp4".toHttpUrl()
+        val tikwmUrl = "https://tikwm.com/api/".toHttpUrl()
+        val cobaltUrl = "https://cobalt.api.scav.run/api/json".toHttpUrl()
+        val fixupxUrl = "https://api.fixupx.com/i/status/123".toHttpUrl()
+
+        val cookie = Cookie.Builder()
+            .domain("tiktok.com")
+            .path("/")
+            .name("tt_webid_v2")
+            .value("secret_webid_val")
+            .build()
+
+        cookieJar.saveFromResponse(tiktokUrl, listOf(cookie))
+
+        // Never forwarded to unrelated CDNs
+        assertTrue(cookieJar.loadForRequest(cdnUrl).isEmpty())
+        assertEquals("", cookieJar.getCookiesForUrl(cdnUrl.toString()))
+
+        // Never forwarded to third-party gateways
+        assertTrue(cookieJar.loadForRequest(tikwmUrl).isEmpty())
+        assertTrue(cookieJar.loadForRequest(cobaltUrl).isEmpty())
+        assertTrue(cookieJar.loadForRequest(fixupxUrl).isEmpty())
+        assertEquals("", cookieJar.getCookiesForUrl(tikwmUrl.toString()))
+        assertEquals("", cookieJar.getCookiesForUrl(cobaltUrl.toString()))
+    }
+
+    @Test
+    fun `deprecated getAllCookieHeader is neutralized and returns empty string`() {
+        val tiktokUrl = "https://www.tiktok.com/video/123".toHttpUrl()
+        val cookie = Cookie.Builder()
+            .domain("tiktok.com")
+            .path("/")
+            .name("auth")
+            .value("val")
+            .build()
+
+        cookieJar.saveFromResponse(tiktokUrl, listOf(cookie))
+        @Suppress("DEPRECATION")
+        assertEquals("", cookieJar.getAllCookieHeader())
+    }
+
+    @Test
     fun `cookies respect path matching`() {
         val apiPathUrl = "https://example.com/api/v1/user".toHttpUrl()
         val otherPathUrl = "https://example.com/public/images".toHttpUrl()

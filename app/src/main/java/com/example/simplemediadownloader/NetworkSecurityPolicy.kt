@@ -5,6 +5,7 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
 import okhttp3.Response
+import okhttp3.ResponseBody
 import java.io.IOException
 import java.net.Inet4Address
 import java.net.Inet6Address
@@ -282,4 +283,27 @@ class SecurityInterceptor(
 
         return response
     }
+}
+
+/**
+ * Maximum allowed size for metadata responses (HTML, JSON, manifests) to prevent OOM attacks.
+ */
+const val MAX_METADATA_BODY_BYTES = 8 * 1024 * 1024L // 8 MiB
+
+/**
+ * Bounded reading of response body into a String.
+ * Rejects oversized responses before buffering them entirely into memory.
+ */
+@Throws(IOException::class)
+fun ResponseBody.readBoundedString(maxBytes: Long = MAX_METADATA_BODY_BYTES): String {
+    val cl = contentLength()
+    if (cl > maxBytes) {
+        throw IOException("Response Content-Length ($cl bytes) exceeds maximum allowed metadata size of $maxBytes bytes")
+    }
+    val source = source()
+    if (source.request(maxBytes + 1)) {
+        throw IOException("Response body exceeds maximum allowed metadata size of $maxBytes bytes")
+    }
+    val charset = contentType()?.charset(Charsets.UTF_8) ?: Charsets.UTF_8
+    return source.buffer.readString(charset)
 }

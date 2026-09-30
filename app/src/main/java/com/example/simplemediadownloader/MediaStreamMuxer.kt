@@ -6,8 +6,69 @@ import android.media.MediaFormat
 import android.media.MediaMuxer
 import java.io.File
 import java.nio.ByteBuffer
+import java.util.Locale
 
 object MediaStreamMuxer {
+
+    val SUPPORTED_MP4_VIDEO_MIMES = setOf(
+        "video/avc",
+        "video/hevc",
+        "video/mp4v-es",
+        "video/3gpp",
+        "video/av01",
+        "video/dolby-vision",
+    )
+
+    val SUPPORTED_MP4_AUDIO_MIMES = setOf(
+        "audio/mp4a-latm",
+        "audio/3gpp",
+        "audio/amr-wb",
+        "audio/opus",
+    )
+
+    private const val DEFAULT_BUFFER_SIZE = 1024 * 1024
+    private const val MAX_DYNAMIC_BUFFER_SIZE = 32 * 1024 * 1024
+
+    private class DynamicBuffer(initialCapacity: Int) {
+        var buffer: ByteBuffer = ByteBuffer.allocate(initialCapacity.coerceIn(64 * 1024, MAX_DYNAMIC_BUFFER_SIZE))
+
+        fun readSample(extractor: MediaExtractor): Int {
+            while (true) {
+                try {
+                    buffer.clear()
+                    return extractor.readSampleData(buffer, 0)
+                } catch (e: IllegalArgumentException) {
+                    if (buffer.capacity() >= MAX_DYNAMIC_BUFFER_SIZE) throw e
+                    buffer = ByteBuffer.allocate((buffer.capacity() * 2).coerceAtMost(MAX_DYNAMIC_BUFFER_SIZE))
+                }
+            }
+        }
+    }
+
+    private fun getInitialBufferSize(format: MediaFormat?): Int {
+        if (format == null) return DEFAULT_BUFFER_SIZE
+        return try {
+            if (format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) {
+                val maxInput = format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE)
+                if (maxInput > 0) maxOf(maxInput, DEFAULT_BUFFER_SIZE) else DEFAULT_BUFFER_SIZE
+            } else {
+                DEFAULT_BUFFER_SIZE
+            }
+        } catch (_: Exception) {
+            DEFAULT_BUFFER_SIZE
+        }
+    }
+
+    fun isSupportedVideoMime(mime: String?): Boolean {
+        if (mime.isNullOrBlank()) return false
+        return mime.lowercase(Locale.US) in SUPPORTED_MP4_VIDEO_MIMES
+    }
+
+    fun isSupportedAudioMime(mime: String?): Boolean {
+        if (mime.isNullOrBlank()) return false
+        return mime.lowercase(Locale.US) in SUPPORTED_MP4_AUDIO_MIMES
+    }
+
     fun mux(
         videoSource: File,
         audioSource: File,
@@ -28,15 +89,18 @@ object MediaStreamMuxer {
             videoExtractor.setDataSource(videoSource.absolutePath)
             audioExtractor.setDataSource(audioSource.absolutePath)
 
-            muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-
             var videoTrackIndex = -1
             var videoSourceTrack = -1
+            var videoFormat: MediaFormat? = null
             for (i in 0 until videoExtractor.trackCount) {
                 val format = videoExtractor.getTrackFormat(i)
                 val mime = format.getString(MediaFormat.KEY_MIME).orEmpty()
                 if (mime.startsWith("video/")) {
-                    videoTrackIndex = muxer.addTrack(format)
+                    if (!isSupportedVideoMime(mime)) {
+                        outputFile.delete()
+                        return false
+                    }
+                    videoFormat = format
                     videoSourceTrack = i
                     break
                 }
@@ -44,20 +108,29 @@ object MediaStreamMuxer {
 
             var audioTrackIndex = -1
             var audioSourceTrack = -1
+            var audioFormat: MediaFormat? = null
             for (i in 0 until audioExtractor.trackCount) {
                 val format = audioExtractor.getTrackFormat(i)
                 val mime = format.getString(MediaFormat.KEY_MIME).orEmpty()
                 if (mime.startsWith("audio/")) {
-                    audioTrackIndex = muxer.addTrack(format)
+                    if (!isSupportedAudioMime(mime)) {
+                        outputFile.delete()
+                        return false
+                    }
+                    audioFormat = format
                     audioSourceTrack = i
                     break
                 }
             }
 
-            if (videoTrackIndex < 0 || audioTrackIndex < 0) {
+            if (videoSourceTrack < 0 || audioSourceTrack < 0 || videoFormat == null || audioFormat == null) {
                 outputFile.delete()
                 return false
             }
+
+            muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            videoTrackIndex = muxer.addTrack(videoFormat)
+            audioTrackIndex = muxer.addTrack(audioFormat)
 
             videoExtractor.selectTrack(videoSourceTrack)
             audioExtractor.selectTrack(audioSourceTrack)
@@ -65,8 +138,8 @@ object MediaStreamMuxer {
             muxer.start()
             isMuxerStarted = true
 
-            val bufferSize = 1024 * 1024
-            val buffer = ByteBuffer.allocate(bufferSize)
+            val initialCapacity = maxOf(getInitialBufferSize(videoFormat), getInitialBufferSize(audioFormat))
+            val dynamicBuffer = DynamicBuffer(initialCapacity)
             val bufferInfo = MediaCodec.BufferInfo()
 
             var videoDone = false
@@ -88,7 +161,7 @@ object MediaStreamMuxer {
 
                 if (!videoDone && (audioDone || videoTime <= audioTime)) {
                     bufferInfo.offset = 0
-                    bufferInfo.size = videoExtractor.readSampleData(buffer, 0)
+                    bufferInfo.size = dynamicBuffer.readSample(videoExtractor)
                     if (bufferInfo.size < 0) {
                         videoDone = true
                     } else {
@@ -96,12 +169,12 @@ object MediaStreamMuxer {
                         bufferInfo.flags = if ((videoExtractor.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC) != 0) {
                             MediaCodec.BUFFER_FLAG_KEY_FRAME
                         } else 0
-                        muxer.writeSampleData(videoTrackIndex, buffer, bufferInfo)
+                        muxer.writeSampleData(videoTrackIndex, dynamicBuffer.buffer, bufferInfo)
                         videoExtractor.advance()
                     }
                 } else if (!audioDone) {
                     bufferInfo.offset = 0
-                    bufferInfo.size = audioExtractor.readSampleData(buffer, 0)
+                    bufferInfo.size = dynamicBuffer.readSample(audioExtractor)
                     if (bufferInfo.size < 0) {
                         audioDone = true
                     } else {
@@ -109,7 +182,7 @@ object MediaStreamMuxer {
                         bufferInfo.flags = if ((audioExtractor.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC) != 0) {
                             MediaCodec.BUFFER_FLAG_KEY_FRAME
                         } else 0
-                        muxer.writeSampleData(audioTrackIndex, buffer, bufferInfo)
+                        muxer.writeSampleData(audioTrackIndex, dynamicBuffer.buffer, bufferInfo)
                         audioExtractor.advance()
                     }
                 }
@@ -155,31 +228,37 @@ object MediaStreamMuxer {
             }
 
             extractor.setDataSource(sourceFile.absolutePath)
-            muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
 
-            var audioTrackIndex = -1
             var audioSourceTrack = -1
+            var audioFormat: MediaFormat? = null
             for (i in 0 until extractor.trackCount) {
                 val format = extractor.getTrackFormat(i)
                 val mime = format.getString(MediaFormat.KEY_MIME).orEmpty()
                 if (mime.startsWith("audio/")) {
-                    audioTrackIndex = muxer.addTrack(format)
+                    if (!isSupportedAudioMime(mime)) {
+                        outputFile.delete()
+                        return false
+                    }
+                    audioFormat = format
                     audioSourceTrack = i
                     break
                 }
             }
 
-            if (audioTrackIndex < 0) {
+            if (audioSourceTrack < 0 || audioFormat == null) {
                 outputFile.delete()
                 return false
             }
+
+            muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            val audioTrackIndex = muxer.addTrack(audioFormat)
 
             extractor.selectTrack(audioSourceTrack)
             muxer.start()
             isMuxerStarted = true
 
-            val bufferSize = 1024 * 1024
-            val buffer = ByteBuffer.allocate(bufferSize)
+            val initialCapacity = getInitialBufferSize(audioFormat)
+            val dynamicBuffer = DynamicBuffer(initialCapacity)
             val bufferInfo = MediaCodec.BufferInfo()
 
             while (true) {
@@ -188,14 +267,14 @@ object MediaStreamMuxer {
                     return false
                 }
                 bufferInfo.offset = 0
-                bufferInfo.size = extractor.readSampleData(buffer, 0)
+                bufferInfo.size = dynamicBuffer.readSample(extractor)
                 if (bufferInfo.size < 0) break
 
                 bufferInfo.presentationTimeUs = extractor.sampleTime
                 bufferInfo.flags = if ((extractor.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC) != 0) {
                     MediaCodec.BUFFER_FLAG_KEY_FRAME
                 } else 0
-                muxer.writeSampleData(audioTrackIndex, buffer, bufferInfo)
+                muxer.writeSampleData(audioTrackIndex, dynamicBuffer.buffer, bufferInfo)
                 extractor.advance()
             }
 
