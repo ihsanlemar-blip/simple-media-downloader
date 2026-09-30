@@ -184,7 +184,7 @@ class OkHttpDownloadEngine(
         if (enforceSecurityPolicy && !NetworkSecurityPolicy.isAllowedShareUrl(request.url)) {
             return@withContext DownloadExecutionResult.Failure(
                 message = "The requested URL is not permitted by security policy.",
-                category = DownloadFailureCategory.NETWORK_SECURITY,
+                category = DownloadFailureCategory.UNSUPPORTED_SITE,
             )
         }
 
@@ -271,7 +271,7 @@ class OkHttpDownloadEngine(
             if (enforceSecurityPolicy && !NetworkSecurityPolicy.isAllowedMediaUrl(resolvedFormat.formatId, allowCleartextHttp = false)) {
                 return@withContext DownloadExecutionResult.Failure(
                     message = "The resolved stream URL is not permitted by network security policy.",
-                    category = DownloadFailureCategory.NETWORK_SECURITY,
+                    category = DownloadFailureCategory.UNSUPPORTED_SITE,
                 )
             }
             if (enforceSecurityPolicy && resolvedFormat.companionAudioFormatId != null &&
@@ -279,7 +279,7 @@ class OkHttpDownloadEngine(
             ) {
                 return@withContext DownloadExecutionResult.Failure(
                     message = "The companion audio stream URL is not permitted by network security policy.",
-                    category = DownloadFailureCategory.NETWORK_SECURITY,
+                    category = DownloadFailureCategory.UNSUPPORTED_SITE,
                 )
             }
 
