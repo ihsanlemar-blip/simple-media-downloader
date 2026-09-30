@@ -930,6 +930,9 @@ class OkHttpDownloadEngine(
                 if (!response.isSuccessful) {
                     throw java.io.IOException("HTTP error ${response.code}: ${response.message}")
                 }
+                if (response.code == 206) {
+                    throw java.io.IOException("Received unexpected HTTP 206 Partial Content for full stream request")
+                }
                 val ct = response.header("Content-Type").orEmpty().lowercase(Locale.US)
                 if (ct.startsWith("text/html") || ct.startsWith("application/json") || ct.startsWith("application/problem+json") ||
                     ct.startsWith("application/xml") || ct.startsWith("text/xml") || ct.contains("vnd.apple.mpegurl")
@@ -938,7 +941,11 @@ class OkHttpDownloadEngine(
                 }
 
                 val body = response.body ?: throw java.io.IOException("Empty response body")
-                val totalBytes = body.contentLength().takeIf { it > 0 } ?: knownTotalBytes
+                val declaredLength = body.contentLength().takeIf { it > 0 }
+                if (knownTotalBytes != null && declaredLength != null && declaredLength != knownTotalBytes) {
+                    throw java.io.IOException("Response Content-Length ($declaredLength) does not match expected size ($knownTotalBytes)")
+                }
+                val totalBytes = knownTotalBytes ?: declaredLength
                 var downloadedBytes = 0L
                 var lastUpdateAt = System.currentTimeMillis()
                 var lastBytesAtUpdate = 0L
