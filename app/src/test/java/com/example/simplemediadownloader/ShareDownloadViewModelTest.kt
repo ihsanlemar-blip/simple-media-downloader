@@ -23,7 +23,7 @@ import android.os.Looper
 class ShareDownloadViewModelTest {
     private val application = ApplicationProvider.getApplicationContext<Application>()
     private val backend = MutableStateFlow(
-        BackendState(initializing = false, youtubeDlReady = true),
+        BackendState(initializing = false, engineReady = true),
     )
 
     @Test
