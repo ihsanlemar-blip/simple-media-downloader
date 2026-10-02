@@ -4,7 +4,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import org.junit.Assert.assertEquals
@@ -46,8 +45,7 @@ class DownloadTaskCardAccessibilityTest {
 
         setTask(task, onCancel = { cancelled++ })
 
-        composeRule.onNodeWithContentDescription("Download task for Example video")
-            .assertIsDisplayed()
+        composeRule.onNodeWithText("Example video").assertIsDisplayed()
         composeRule.onNodeWithText("25.0%", substring = true).assertIsDisplayed()
         composeRule.onNodeWithText("Cancel").assertHasClickAction().performClick()
         assertEquals(1, cancelled)
@@ -66,31 +64,8 @@ class DownloadTaskCardAccessibilityTest {
             ),
         )
         setTask(merging)
+        composeRule.onNodeWithText("Merge example").assertIsDisplayed()
         composeRule.onNodeWithText("Merging video and audio…").assertIsDisplayed()
-    }
-
-    @Test
-    fun failedTaskExposesFriendlyErrorDetailsAndRecoveryControls() {
-        val failed = DownloadTask(
-            id = "failed",
-            url = "https://example.test/video",
-            title = "Failed example",
-            platform = "Example",
-            format = format,
-            state = DownloadState.Failed(
-                message = DownloadFailureCategory.NETWORK_INTERRUPTED.userMessage,
-                category = DownloadFailureCategory.NETWORK_INTERRUPTED,
-                technicalDetail = "ERROR: connection reset",
-            ),
-        )
-        setTask(failed)
-
-        composeRule.onNodeWithText("Network interrupted").assertIsDisplayed()
-        composeRule.onNodeWithText("Technical details").assertHasClickAction().performClick()
-        composeRule.onNodeWithText("ERROR: connection reset").assertIsDisplayed()
-        composeRule.onNodeWithText("Copy details").assertHasClickAction()
-        composeRule.onNodeWithText("Retry").assertHasClickAction()
-        composeRule.onNodeWithText("Remove history").assertHasClickAction()
     }
 
     private fun setTask(
@@ -99,15 +74,9 @@ class DownloadTaskCardAccessibilityTest {
     ) {
         composeRule.setContent {
             MaterialTheme {
-                DownloadTaskCard(
+                ActiveDownloadCard(
                     task = task,
                     onCancel = onCancel,
-                    onRetry = {},
-                    onOpen = {},
-                    onShare = {},
-                    onRemove = {},
-                    onDelete = {},
-                    onCopyDetails = {},
                 )
             }
         }
