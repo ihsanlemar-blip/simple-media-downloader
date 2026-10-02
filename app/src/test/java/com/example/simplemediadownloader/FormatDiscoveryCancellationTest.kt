@@ -37,8 +37,6 @@ class FormatDiscoveryCancellationTest {
     fun `custom cancellation exception is rethrown instead of returning Failure`() = runBlocking {
         val testDispatcher = AppDispatchers(
             io = Dispatchers.Unconfined,
-            main = Dispatchers.Unconfined,
-            default = Dispatchers.Unconfined,
         )
         val engine = NewPipeFormatDiscoveryEngine(dispatchers = testDispatcher)
 

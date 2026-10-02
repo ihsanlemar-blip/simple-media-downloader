@@ -361,16 +361,16 @@ class DownloadService : Service() {
 
     companion object {
         private const val TAG = "DownloadService"
-        private const val ACTION_ENQUEUE =
+        const val ACTION_ENQUEUE =
             "com.example.simplemediadownloader.action.ENQUEUE"
-        private const val ACTION_CANCEL =
+        const val ACTION_CANCEL =
             "com.example.simplemediadownloader.action.CANCEL"
-        private const val ACTION_CANCEL_ALL =
+        const val ACTION_CANCEL_ALL =
             "com.example.simplemediadownloader.action.CANCEL_ALL"
-        private const val ACTION_REFRESH =
+        const val ACTION_REFRESH =
             "com.example.simplemediadownloader.action.REFRESH"
-        private const val EXTRA_TASK_ID = "task_id"
-        private const val EXTRA_CONCURRENCY = "concurrency"
+        const val EXTRA_TASK_ID = "task_id"
+        const val EXTRA_CONCURRENCY = "concurrency"
         private const val FOREGROUND_UPDATE_INTERVAL_MS = 1_000L
         private const val PROCESS_CLEANUP_TIMEOUT_MS = 2_000L
 

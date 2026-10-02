@@ -160,7 +160,7 @@ class DownloadNotifier(private val context: Context) {
     }
 
     companion object {
-        internal const val CHANNEL_ID = "media_downloads"
+        const val CHANNEL_ID = "media_downloads"
         private const val PROGRESS_UPDATE_INTERVAL_MS = 1_000L
         fun createChannel(context: Context) {
             val channel = NotificationChannel(

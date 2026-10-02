@@ -30,11 +30,10 @@ class PlatformCompatibilityAndServicesDeviceTest {
 
     @Test
     fun notificationChannelsAreCreatedAndConfigured() {
-        val notifier = DownloadNotifier(context)
-        notifier.ensureChannel()
+        DownloadNotifier.createChannel(context)
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channel = manager.getNotificationChannel("media_downloads")
+        val channel = manager.getNotificationChannel(DownloadNotifier.CHANNEL_ID)
         assertNotNull("media_downloads channel must be created", channel)
         assertTrue(channel.importance >= NotificationManager.IMPORTANCE_LOW)
     }
