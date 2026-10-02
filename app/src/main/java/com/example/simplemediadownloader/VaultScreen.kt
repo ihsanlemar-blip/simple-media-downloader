@@ -141,7 +141,6 @@ fun VaultScreen(
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             TextButton(onClick = onSelectAllTasks) {
                                 Text(stringResource(R.string.action_select_all), fontWeight = FontWeight.SemiBold)

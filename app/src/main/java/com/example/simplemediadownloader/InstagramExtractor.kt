@@ -15,7 +15,6 @@ import java.net.URLEncoder
 import java.util.regex.Pattern
 import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Element
-import com.example.simplemediadownloader.ExtractorSharedUtils.*
 
 object InstagramExtractor {
     fun extract(client: OkHttpClient, url: String): FormatDiscoveryResult {
@@ -149,11 +148,13 @@ object InstagramExtractor {
                 ?: targetProduct.optString("video_dash_manifest").takeIf { it.isNotBlank() }
                 ?: extractPattern(html, """(?:video_)?dash_manifest["']:\s*"((?:[^"\\]|\\.)*)"""")
 
-            val (igDashVideos, igDashAudio) = if (!igDashRaw.isNullOrBlank()) {
-                parseDashManifest(client, unescapeDashManifest(igDashRaw), headers)
+            val dashResult: Pair<List<AvailableFormat>, AvailableFormat?> = if (!igDashRaw.isNullOrBlank()) {
+                FacebookExtractor.parseDashManifest(client, FacebookExtractor.unescapeDashManifest(igDashRaw), headers)
             } else {
-                Pair(emptyList(), null)
+                Pair(emptyList<AvailableFormat>(), null)
             }
+            val igDashVideos = dashResult.first
+            val igDashAudio = dashResult.second
             videoFormats.addAll(igDashVideos)
 
             for (i in 0 until videoVersions.length()) {

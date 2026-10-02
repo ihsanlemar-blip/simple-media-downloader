@@ -15,7 +15,6 @@ import java.net.URLEncoder
 import java.util.regex.Pattern
 import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Element
-import com.example.simplemediadownloader.ExtractorSharedUtils.*
 
 object RedditExtractor {
     fun extract(client: OkHttpClient, url: String): FormatDiscoveryResult {
