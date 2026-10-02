@@ -5,17 +5,15 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
-// AGP cannot consume multiple resource-shrunk APK split outputs while building an App Bundle.
-// Bundles already provide ABI-targeted delivery, so disable APK splitting only for bundle tasks.
-val buildingAppBundle = gradle.startParameter.taskNames.any { taskName ->
-    taskName.substringAfterLast(':').startsWith("bundle", ignoreCase = true)
-}
-
 android {
     namespace = "com.example.simplemediadownloader"
     compileSdk = 35
 
     defaultConfig {
+        // Application ID is preserved as com.example.simplemediadownloader to maintain upgrade
+        // compatibility with already-distributed releases (e.g. v2.5.0 on GitHub Releases).
+        // Modifying this ID would break in-place upgrades and orphan existing Room databases
+        // and preferences stored under the previous package sandbox.
         applicationId = "com.example.simplemediadownloader"
         minSdk = 29
         targetSdk = 35

@@ -99,22 +99,35 @@ Requirements:
 - Android SDK 35
 - network access for the first Gradle dependency resolution
 
+Linux / macOS commands:
+
+```bash
+export ANDROID_HOME=$HOME/Android/Sdk
+./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+./gradlew :app:assembleRelease
+./gradlew :app:bundleRelease
+```
+
 Windows commands:
 
 ```powershell
 $env:ANDROID_HOME = 'C:\Users\you\AppData\Local\Android\Sdk'
-.\gradlew.bat :app:test :app:lintDebug :app:assembleDebug
+.\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 .\gradlew.bat :app:assembleRelease
 .\gradlew.bat :app:bundleRelease
 ```
 
 Outputs:
 
-- installable debug APKs: `app/build/outputs/apk/debug/`
-- minified release APKs: `app/build/outputs/apk/release/`
+- installable debug APK: `app/build/outputs/apk/debug/app-debug.apk`
+- minified release APK (universal): `app/build/outputs/apk/release/app-release-unsigned.apk`
 - release App Bundle: `app/build/outputs/bundle/release/app-release.aab`
 
-APK builds contain separate `arm64-v8a` and `x86_64` artifacts. A universal APK is intentionally disabled. The App Bundle lets the store generate ABI-targeted delivery artifacts.
+The release build generates a universal APK supporting all Android architectures (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`) because format extraction, OkHttp downloading, and AndroidX Media3 muxing operate via pure Java/Kotlin and platform MediaCodec/MediaMuxer APIs without architecture-bound native `.so` libraries. When distributing through app stores supporting Android App Bundles, the release App Bundle (`app-release.aab`) enables store-managed delivery.
+
+### Application ID & Upgrade Compatibility
+
+The application ID is retained as `com.example.simplemediadownloader` to guarantee backward upgrade compatibility with existing distributed builds (such as `v2.5.0` on GitHub Releases). Modifying the application ID would break in-place updates on installed devices, orphaning existing Room database records, stored download queues, and preferences within the sandbox.
 
 Release builds use `proguard-android-optimize.txt`, R8 minification, and resource shrinking. Room supplies its own `RoomDatabase` consumer rule, while Compose is statically linked. A Baseline Profile is not included because one has not been generated and validated from representative journeys on a physical device.
 
@@ -149,7 +162,7 @@ Local tests cover queue scheduling and recovery, DAO transitions, retries and de
 
 Use authorized public test media and test at least API 29, 33, 34, and 35:
 
-1. Install the APK matching the device ABI and confirm immediate first composition while NewPipe and extraction engines initialize asynchronously.
+1. Install the universal APK and confirm immediate first composition while NewPipe and extraction engines initialize asynchronously.
 2. Verify normal paste/type input and browser `text/plain` sharing. Confirm only the compact share window opens and malformed, oversized, multiple, missing-MIME, and non-text shares are safe.
 3. Deny and grant notification permission. Confirm user-driven enqueueing and foreground-service disclosure behave correctly in both cases.
 4. Start two downloads, close the activity, cancel one from its notification, and confirm the other continues.
@@ -160,4 +173,4 @@ Use authorized public test media and test at least API 29, 33, 34, and 35:
 9. Delete output inside the app and outside the app. Confirm explicit deletion and missing-output history behavior.
 10. Verify light/dark themes, dynamic color, TalkBack announcements, large font, tablet share-window width, predictive back, and touch targets.
 11. Run a long Android 15 data-transfer session or controlled timeout test and verify interruption cleanup and retry.
-12. Validate the final R8-signed production build on both `arm64-v8a` and `x86_64` before distribution.
+12. Validate the release build across target devices (e.g. `arm64-v8a` and `x86_64`) before distribution.
