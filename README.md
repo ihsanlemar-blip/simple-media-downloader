@@ -1,10 +1,11 @@
 # Simple Media Downloader
 
-[![Download Universal APK](https://img.shields.io/badge/Download-Universal%20APK-brightgreen?style=for-the-badge&logo=android)](https://github.com/ihsanlemar-blip/simple-media-downloader/releases/download/v2.5.0/SimpleMediaDownloader-v2.5.0-universal.apk)
 [![Latest Release](https://img.shields.io/github/v/release/ihsanlemar-blip/simple-media-downloader?style=for-the-badge)](https://github.com/ihsanlemar-blip/simple-media-downloader/releases/latest)
+[![Releases](https://img.shields.io/badge/GitHub-Releases-blue?style=for-the-badge&logo=github)](https://github.com/ihsanlemar-blip/simple-media-downloader/releases)
 
-> 🚀 **Direct Download**: Grab the latest ready-to-install signed universal APK from GitHub Releases:
-> **[SimpleMediaDownloader-v2.5.0-universal.apk](https://github.com/ihsanlemar-blip/simple-media-downloader/releases/download/v2.5.0/SimpleMediaDownloader-v2.5.0-universal.apk)** *(Supports `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`)*
+> 📦 **Downloads & Releases**:
+> * **Last Published Release**: [v2.5.0 on GitHub Releases](https://github.com/ihsanlemar-blip/simple-media-downloader/releases/tag/v2.5.0) ([SimpleMediaDownloader-v2.5.0-universal.apk](https://github.com/ihsanlemar-blip/simple-media-downloader/releases/download/v2.5.0/SimpleMediaDownloader-v2.5.0-universal.apk)).
+> * **Current Source (`main`)**: Version 2.5.1 (versionCode 251) contains subsequent reliability, security, and verification fixes prepared for the next release. To run the latest code, build from source following the [Building](#building) instructions below.
 
 Simple Media Downloader is a flagship Kotlin and Jetpack Compose Android application for saving publicly accessible media from TikTok, Instagram Reels, Facebook, YouTube, X (Twitter), and Reddit with full metadata and original title preservation. Format extraction runs on-device using TeamNewPipe's NewPipeExtractor alongside specialized direct network scrapers. Media streams are downloaded with OkHttp (featuring RFC 7233 range-request validation, automatic continuous fallback, and destination security policies), and audio/video track merging and extraction are processed natively on-device using platform `android.media.MediaMuxer`, `MediaExtractor`, and `MediaCodec` APIs without any external binaries or runtimes. In-app media preview playback is powered by AndroidX Media3 (ExoPlayer and UI).
 

@@ -17,8 +17,8 @@ android {
         applicationId = "com.example.simplemediadownloader"
         minSdk = 29
         targetSdk = 35
-        versionCode = 250
-        versionName = "2.5.0"
+        versionCode = 251
+        versionName = "2.5.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
