@@ -63,6 +63,23 @@ class BoundedResponseAndSecurityTest {
     }
 
     @Test
+    fun `metadata endpoint returning oversized payload fails safely with IOException without buffering full body`() {
+        val oversizedLength = 10L * 1024 * 1024 // 10 MiB
+        val customBody = object : ResponseBody() {
+            override fun contentType() = "text/html".toMediaType()
+            override fun contentLength() = oversizedLength
+            override fun source() = Buffer().writeUtf8("<html><body>preview</body></html>")
+        }
+
+        try {
+            customBody.readBoundedString()
+            fail("Expected readBoundedString to reject 10 MiB payload")
+        } catch (e: IOException) {
+            assertTrue(e.message?.contains("exceeds maximum allowed metadata size") == true)
+        }
+    }
+
+    @Test
     fun `isObviousNonMediaPayload detects HTML, XML, and JSON error responses`() {
         val engine = OkHttpDownloadEngine(enforceSecurityPolicy = false)
 

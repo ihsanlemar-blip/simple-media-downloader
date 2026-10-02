@@ -41,6 +41,31 @@ class ScopedCookieJarTest {
     }
 
     @Test
+    fun `cross-domain redirect target receives no cookies from original host`() {
+        val originalHost = "https://www.tiktok.com/redirect?target=https%3A%2F%2Fcdn.example.org%2Fstream.mp4".toHttpUrl()
+        val redirectTarget = "https://cdn.example.org/stream.mp4".toHttpUrl()
+
+        val cookie = Cookie.Builder()
+            .domain("tiktok.com")
+            .path("/")
+            .name("session_token")
+            .value("tok_12345")
+            .build()
+
+        cookieJar.saveFromResponse(originalHost, listOf(cookie))
+
+        // Initial request to TikTok has cookie
+        val originalCookies = cookieJar.loadForRequest(originalHost)
+        assertEquals(1, originalCookies.size)
+        assertEquals("tok_12345", originalCookies[0].value)
+
+        // Redirected request to foreign destination receives none of TikTok's cookies
+        val redirectedCookies = cookieJar.loadForRequest(redirectTarget)
+        assertTrue("Redirect target on separate domain must not receive TikTok cookies", redirectedCookies.isEmpty())
+        assertEquals("", cookieJar.getCookiesForUrl(redirectTarget.toString()))
+    }
+
+    @Test
     fun `host-only cookies are not shared with other subdomains or parent domain`() {
         val specificHostUrl = "https://m.tiktok.com/v/123".toHttpUrl()
         val otherSubdomainUrl = "https://www.tiktok.com/v/123".toHttpUrl()

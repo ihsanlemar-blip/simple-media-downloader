@@ -155,6 +155,38 @@ class RangedDownloadValidationTest {
     }
 
     @Test
+    fun `rejects 206 response with malformed Content-Range`() = runBlocking {
+        val totalSize = 3 * 1024 * 1024
+        val data = createValidMp4Bytes(totalSize)
+
+        SimpleLocalServer { _, _, out, _ ->
+            val header = "HTTP/1.1 206 Partial Content\r\nContent-Type: video/mp4\r\nContent-Range: invalid-format-content-range\r\nContent-Length: 1000\r\nConnection: close\r\n\r\n"
+            out.write(header.toByteArray())
+            out.write(data, 0, 1000)
+            out.flush()
+        }.use { server ->
+            val engine = OkHttpDownloadEngine(enforceSecurityPolicy = false)
+            val destDir = tempFolder.newFolder("output_malformed_range")
+            val request = DownloadRequest(
+                id = "task-malformed-range",
+                url = server.url("/malformed-range"),
+                title = "Test Malformed Range",
+                format = AvailableFormat(
+                    key = "format-malformed",
+                    mode = DownloadMode.VIDEO,
+                    formatId = server.url("/malformed-range"),
+                    extension = "mp4",
+                    estimatedSizeBytes = totalSize.toLong(),
+                ),
+            )
+
+            val result = engine.download(request, destDir) {}
+            assertTrue("Malformed Content-Range must be rejected, got: $result", result !is DownloadExecutionResult.Success)
+            assertFalse(File(destDir, "Test Malformed Range-video.tmp").exists())
+        }
+    }
+
+    @Test
     fun `rejects 206 response with wrong range start`() = runBlocking {
         val totalSize = 3 * 1024 * 1024
         val data = createValidMp4Bytes(totalSize)
