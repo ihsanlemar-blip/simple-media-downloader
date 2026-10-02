@@ -32,15 +32,12 @@ class VaultAdaptiveAndAccessibilityTest {
             height = 720,
         ),
         state = DownloadState.Completed(
-            DownloadResult.Success(
-                DownloadOutputFile(
-                    uri = "content://media/external/video/media/10",
-                    absolutePath = "/storage/emulated/0/Movies/MediaDownloader/sample.mp4",
-                    displayName = "sample.mp4",
-                    mimeType = "video/mp4",
-                    fileSizeBytes = 12_500_000L,
-                )
-            )
+            output = DownloadOutput(
+                contentUri = "content://media/external/video/media/10",
+                displayName = "sample.mp4",
+                mimeType = "video/mp4",
+                fileSizeBytes = 12_500_000L,
+            ),
         ),
     )
 
@@ -50,7 +47,7 @@ class VaultAdaptiveAndAccessibilityTest {
         var cleared = false
 
         val state = MainUiState(
-            recentHistory = listOf(sampleTask),
+            tasks = listOf(sampleTask),
             selectedVaultTaskIds = setOf("sample-1"),
             isMultiSelectActive = true,
         )
@@ -85,7 +82,7 @@ class VaultAdaptiveAndAccessibilityTest {
     @Test
     fun vaultRendersGracefullyUnderRtlLayout() {
         val state = MainUiState(
-            recentHistory = listOf(sampleTask),
+            tasks = listOf(sampleTask),
         )
 
         composeRule.setContent {
@@ -120,7 +117,7 @@ class VaultAdaptiveAndAccessibilityTest {
     @Test
     fun vaultRendersGracefullyUnderLargeFontScale() {
         val state = MainUiState(
-            recentHistory = listOf(sampleTask),
+            tasks = listOf(sampleTask),
         )
 
         composeRule.setContent {

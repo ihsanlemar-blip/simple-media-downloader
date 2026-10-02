@@ -33,52 +33,42 @@ class RoomDatabaseDeviceTest {
 
     @Test
     fun databaseInitializesAndPerformsCrudOnDeviceSqlite() = runBlocking {
-        val format = AvailableFormat(
-            key = "video:22",
-            mode = DownloadMode.VIDEO,
-            formatId = "22",
-            extension = "mp4",
-            height = 720,
-        )
-        val entity = DownloadTaskEntity(
+        val record = DownloadRecord(
             taskId = "device-test-1",
             sourceUrl = "https://www.tiktok.com/@creativecook/video/123456",
             displayTitle = "Delicious Ramen Recipe",
-            displayAuthor = "creativecook",
             platform = "TikTok",
-            formatKey = format.key,
-            formatId = format.formatId,
-            downloadMode = format.mode.name,
-            fileExtension = format.extension,
-            width = null,
-            height = format.height,
-            fps = null,
-            bitrateKbps = null,
-            codec = null,
-            formatNote = "",
-            sizeIsApproximate = false,
-            sourceHeight = format.height,
-            requiresDownscale = false,
-            isQuickPreset = false,
-            status = DownloadTaskStatus.COMPLETED.name,
-            processingStage = DownloadProcessingStage.COMPLETED.name,
+            author = "creativecook",
+            format = AvailableFormat(
+                key = "video:22",
+                mode = DownloadMode.VIDEO,
+                formatId = "22",
+                extension = "mp4",
+                height = 720,
+            ),
+            status = DownloadTaskStatus.COMPLETED,
+            stage = DownloadProcessingStage.COMPLETED,
             progressPercent = 100f,
             etaSeconds = 0L,
-            completedUri = "content://media/external/video/media/99",
-            completedPath = "/storage/emulated/0/Movies/MediaDownloader/ramen.mp4",
-            completedFileName = "ramen.mp4",
-            completedMimeType = "video/mp4",
-            completedSizeBytes = 15_000_000L,
+            output = DownloadOutput(
+                contentUri = "content://media/external/video/media/99",
+                mimeType = "video/mp4",
+                fileSizeBytes = 15_000_000L,
+                displayName = "ramen.mp4",
+            ),
             createdAt = 1000L,
             startedAt = 1005L,
             completedAt = 1020L,
+            failureCategory = null,
+            failureMessage = null,
+            technicalFailureDetail = null,
         )
 
-        dao.insert(entity)
+        dao.insert(record.toEntity())
 
         val retrieved = dao.get("device-test-1")
         assertNotNull(retrieved)
-        assertEquals("creativecook", retrieved?.displayAuthor)
+        assertEquals("creativecook", retrieved?.author)
         assertEquals("Delicious Ramen Recipe", retrieved?.displayTitle)
 
         // Verify author search works on real device SQLite
@@ -86,8 +76,8 @@ class RoomDatabaseDeviceTest {
         assertEquals(1, searchResults.size)
         assertEquals("device-test-1", searchResults[0].taskId)
 
-        // Verify delete works
-        dao.delete("device-test-1")
+        // Verify remove history works
+        dao.removeHistoryEntry("device-test-1")
         assertTrue(dao.observeRecentHistory().first().isEmpty())
     }
 }
