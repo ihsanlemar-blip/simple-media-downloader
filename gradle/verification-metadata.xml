@@ -3,8 +3,8 @@
    <configuration>
       <verify-metadata>false</verify-metadata>
       <verify-signatures>false</verify-signatures>
+      <trusted-artifacts>
+         <trust group=".*" regex="true" reason="Baseline configuration for reproducible build dependency resolution"/>
+      </trusted-artifacts>
    </configuration>
-   <trusted-artifacts>
-      <trust group=".*" regex="true" reason="Baseline configuration for reproducible build dependency resolution"/>
-   </trusted-artifacts>
 </configuration>
