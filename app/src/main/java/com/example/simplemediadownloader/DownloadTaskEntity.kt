@@ -11,6 +11,7 @@ import androidx.room.PrimaryKey
         Index(value = ["status", "created_at"]),
         Index(value = ["completed_at"]),
         Index(value = ["canonical_url"]),
+        Index(value = ["author"]),
     ],
 )
 data class DownloadTaskEntity(
@@ -53,6 +54,7 @@ data class DownloadTaskEntity(
     @ColumnInfo(name = "failure_message") val failureMessage: String?,
     @ColumnInfo(name = "technical_failure_detail") val technicalFailureDetail: String?,
     @ColumnInfo(name = "http_headers") val httpHeaders: String? = null,
+    @ColumnInfo(name = "author") val author: String? = null,
 )
 
 object CredentialRedactor {
@@ -155,6 +157,7 @@ fun DownloadRecord.toEntity(): DownloadTaskEntity {
         failureMessage = sanitizedFailureMessage,
         technicalFailureDetail = sanitizedTechnicalDetail,
         httpHeaders = serializeHeaders(sanitizedHeaders),
+        author = author,
     )
 }
 
@@ -163,6 +166,7 @@ fun DownloadTaskEntity.toRecord(): DownloadRecord = DownloadRecord(
     sourceUrl = sourceUrl,
     displayTitle = displayTitle,
     platform = platform,
+    author = author,
     format = AvailableFormat(
         key = formatKey,
         mode = enumValueOrDefault(downloadMode, DownloadMode.VIDEO),

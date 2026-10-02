@@ -1,10 +1,18 @@
 package com.example.simplemediadownloader
 
 enum class FailureOrigin {
-    YT_DLP,
-    FFMPEG,
+    DOWNLOAD_ENGINE,
+    MEDIA_PROCESSOR,
     STORAGE,
-    ANDROID,
+    ANDROID;
+
+    companion object {
+        @Deprecated("Use DOWNLOAD_ENGINE", ReplaceWith("DOWNLOAD_ENGINE"))
+        val YT_DLP = DOWNLOAD_ENGINE
+
+        @Deprecated("Use MEDIA_PROCESSOR", ReplaceWith("MEDIA_PROCESSOR"))
+        val FFMPEG = MEDIA_PROCESSOR
+    }
 }
 
 internal object TechnicalFailureMapper {
@@ -24,9 +32,12 @@ internal object TechnicalFailureMapper {
             ) -> DownloadFailureCategory.ANDROID_INTERRUPTED_TASK
             matches(normalized, "no space left on device", "enospc", "not enough available storage") ->
                 DownloadFailureCategory.INSUFFICIENT_STORAGE
-            origin == FailureOrigin.FFMPEG || matches(
+            origin == FailureOrigin.MEDIA_PROCESSOR || matches(
                 normalized,
+                "media processor error",
+                "media converter error",
                 "ffmpeg error",
+                "muxer error",
                 "postprocessing error",
                 "conversion failed",
                 "error while filtering",
@@ -100,3 +111,9 @@ internal object TechnicalFailureMapper {
     private fun matches(value: String, vararg patterns: String): Boolean =
         patterns.any(value::contains)
 }
+
+internal data class MappedDownloadFailure(
+    val category: DownloadFailureCategory,
+    val message: String,
+    val technicalDetail: String,
+)

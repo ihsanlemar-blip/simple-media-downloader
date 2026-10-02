@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -82,6 +83,7 @@ data class MainUiState(
             .filter { task ->
                 if (historySearchQuery.isBlank()) true
                 else task.title.contains(historySearchQuery, ignoreCase = true) ||
+                    (!task.author.isNullOrBlank() && task.author.contains(historySearchQuery, ignoreCase = true)) ||
                     task.url.contains(historySearchQuery, ignoreCase = true)
             }
             .filter { task ->
@@ -120,8 +122,47 @@ class MainViewModel @JvmOverloads constructor(
             },
     private val formatDiscoveryEngine: FormatDiscoveryEngine? =
         (application as? SimpleMediaDownloaderApp)?.formatDiscoveryEngine,
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
 ) : AndroidViewModel(application) {
-    private val _uiState = MutableStateFlow(MainUiState())
+
+    constructor(application: Application, savedStateHandle: SavedStateHandle) : this(
+        application = application,
+        repository = (application as SimpleMediaDownloaderApp).downloadRepository,
+        preferenceStore = (application as SimpleMediaDownloaderApp).downloadPreferenceStore,
+        dispatchers = (application as SimpleMediaDownloaderApp).dispatchers,
+        storageExporter = (application as? SimpleMediaDownloaderApp)?.storageExporter
+            ?: object : StorageExporter {
+                override suspend fun prepareDestination(request: DownloadRequest) =
+                    Result.failure<ExportDestination>(UnsupportedOperationException())
+                override suspend fun exportCompletedFile(
+                    request: DownloadRequest,
+                    destination: ExportDestination,
+                    commandOutput: String,
+                ) = Result.failure<DownloadOutput>(UnsupportedOperationException())
+                override suspend fun cleanup(destination: ExportDestination) {}
+                override suspend fun outputExists(output: DownloadOutput) = false
+                override suspend fun clearDisposableCache(): Long = 0L
+            },
+        formatDiscoveryEngine = (application as? SimpleMediaDownloaderApp)?.formatDiscoveryEngine,
+        savedStateHandle = savedStateHandle,
+    )
+
+    private val _uiState = MutableStateFlow(
+        MainUiState(
+            currentTab = savedStateHandle.get<String>(KEY_NAV_TAB)?.let {
+                runCatching { NavigationTab.valueOf(it) }.getOrNull()
+            } ?: NavigationTab.GATEWAY,
+            url = savedStateHandle.get<String>(KEY_INPUT_URL) ?: "",
+            historySearchQuery = savedStateHandle.get<String>(KEY_SEARCH_QUERY) ?: "",
+            historyPlatformFilter = savedStateHandle.get<String>(KEY_PLATFORM_FILTER),
+            vaultMediaType = savedStateHandle.get<String>(KEY_MEDIA_TYPE)?.let {
+                runCatching { VaultMediaType.valueOf(it) }.getOrNull()
+            } ?: VaultMediaType.ALL,
+            vaultViewMode = savedStateHandle.get<String>(KEY_VIEW_MODE)?.let {
+                runCatching { VaultViewMode.valueOf(it) }.getOrNull()
+            } ?: VaultViewMode.GRID,
+        ),
+    )
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
     private var discoveryGeneration = 0
     private var pendingDiscoveryUrl: String? = null
@@ -179,10 +220,12 @@ class MainViewModel @JvmOverloads constructor(
     }
 
     fun setTab(tab: NavigationTab) {
+        savedStateHandle[KEY_NAV_TAB] = tab.name
         _uiState.update { it.copy(currentTab = tab) }
     }
 
     fun setVaultViewMode(mode: VaultViewMode) {
+        savedStateHandle[KEY_VIEW_MODE] = mode.name
         _uiState.update { it.copy(vaultViewMode = mode) }
         viewModelScope.launch {
             preferenceStore.setVaultViewMode(if (mode == VaultViewMode.GRID) "grid" else "list")
@@ -190,6 +233,7 @@ class MainViewModel @JvmOverloads constructor(
     }
 
     fun setVaultMediaType(type: VaultMediaType) {
+        savedStateHandle[KEY_MEDIA_TYPE] = type.name
         _uiState.update { it.copy(vaultMediaType = type) }
     }
 
@@ -293,14 +337,17 @@ class MainViewModel @JvmOverloads constructor(
     }
 
     fun setHistorySearchQuery(query: String) {
+        savedStateHandle[KEY_SEARCH_QUERY] = query
         _uiState.update { it.copy(historySearchQuery = query) }
     }
 
     fun setHistoryPlatformFilter(platform: String?) {
+        savedStateHandle[KEY_PLATFORM_FILTER] = platform
         _uiState.update { it.copy(historyPlatformFilter = platform) }
     }
 
     fun setUrl(value: String) {
+        savedStateHandle[KEY_INPUT_URL] = value
         discoveryGeneration++
         pendingDiscoveryUrl = null
         _uiState.update {
@@ -375,7 +422,8 @@ class MainViewModel @JvmOverloads constructor(
         val mediaTitle = exactCatalog?.title
             ?: quickCatalog.title.takeIf { it.isNotBlank() && it != "Fast native downloads" && it != "Available formats" }
             ?: formatTaskTitle(format)
-        enqueueDownload(url, format, mediaTitle)
+        val author = exactCatalog?.author ?: quickCatalog.author
+        enqueueDownload(url, format, mediaTitle, author)
     }
 
     fun chooseFormat() {
@@ -409,16 +457,22 @@ class MainViewModel @JvmOverloads constructor(
             ?: formatTaskTitle(format)
 
         _uiState.update { it.copy(showFormatPicker = false) }
-        enqueueDownload(url, format, mediaTitle)
+        enqueueDownload(url, format, mediaTitle, snapshot.formatCatalog?.author)
     }
 
-    private fun enqueueDownload(url: String, format: AvailableFormat, title: String) {
+    private fun enqueueDownload(
+        url: String,
+        format: AvailableFormat,
+        title: String,
+        author: String? = null,
+    ) {
         val processId = UUID.randomUUID().toString()
         val request = DownloadRequest(
             id = processId,
             url = url,
             title = title,
             format = format,
+            author = author,
         )
         viewModelScope.launch {
             val enqueueResult = repository.enqueue(request)
@@ -564,9 +618,14 @@ class MainViewModel @JvmOverloads constructor(
         }
     }
 
-    fun retryYoutubeDlInitialization() {
+    fun retryBackendInitialization() {
         (getApplication<Application>() as SimpleMediaDownloaderApp)
-            .retryYoutubeDlInitialization()
+            .retryBackendInitialization()
+    }
+
+    @Deprecated("Use retryBackendInitialization()", ReplaceWith("retryBackendInitialization()"))
+    fun retryYoutubeDlInitialization() {
+        retryBackendInitialization()
     }
 
     fun setDefaultDownloadChoice(choice: DefaultDownloadChoice) {
@@ -598,5 +657,14 @@ class MainViewModel @JvmOverloads constructor(
         DownloadMode.VIDEO -> if (format.height > 0) "${format.height}p video" else "Video"
         DownloadMode.AUDIO_ORIGINAL -> "Original ${format.extension.uppercase()} audio"
         DownloadMode.AUDIO_MP3 -> "${format.bitrateKbps} kbps MP3"
+    }
+
+    companion object {
+        private const val KEY_NAV_TAB = "saved_nav_tab"
+        private const val KEY_INPUT_URL = "saved_input_url"
+        private const val KEY_SEARCH_QUERY = "saved_search_query"
+        private const val KEY_PLATFORM_FILTER = "saved_platform_filter"
+        private const val KEY_MEDIA_TYPE = "saved_media_type"
+        private const val KEY_VIEW_MODE = "saved_view_mode"
     }
 }

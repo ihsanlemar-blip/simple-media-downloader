@@ -369,7 +369,7 @@ internal fun shareFormatLabel(format: AvailableFormat): String = when (format.mo
     DownloadMode.VIDEO -> if (format.height > 0) {
         buildString {
             append("${format.height}p video")
-            if (!format.requiresFfmpeg) append(" · video + audio")
+            if (!format.requiresMuxing) append(" · video + audio")
         }
     } else {
         "Best video"

@@ -10,8 +10,11 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -135,7 +138,11 @@ fun VaultScreen(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             TextButton(onClick = onSelectAllTasks) {
                                 Text(stringResource(R.string.action_select_all), fontWeight = FontWeight.SemiBold)
                             }
@@ -163,7 +170,11 @@ fun VaultScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 // Media Type Filters
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(
+                    modifier = Modifier.weight(1f, fill = false),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
                     VaultMediaType.entries.forEach { mediaType ->
                         val isSelected = state.vaultMediaType == mediaType
                         FilterChip(
@@ -201,7 +212,7 @@ fun VaultScreen(
                     ) {
                         Icon(
                             imageVector = if (state.vaultViewMode == VaultViewMode.GRID) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
-                            contentDescription = "Toggle View Mode",
+                            contentDescription = stringResource(R.string.action_switch_view_mode),
                             tint = MaterialTheme.colorScheme.onSurface,
                         )
                     }
@@ -445,13 +456,17 @@ fun BulkDeleteConfirmationDialog(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onToggleAlsoDeleteStorageFiles(!alsoDeleteStorageFiles) }
+                            .toggleable(
+                                value = alsoDeleteStorageFiles,
+                                role = Role.Checkbox,
+                                onValueChange = onToggleAlsoDeleteStorageFiles,
+                            )
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Checkbox(
                             checked = alsoDeleteStorageFiles,
-                            onCheckedChange = onToggleAlsoDeleteStorageFiles,
+                            onCheckedChange = null,
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
@@ -857,12 +872,15 @@ private fun VaultListCard(
                     }
 
                     // Action buttons row
-                    Row(
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Button(
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -904,7 +922,9 @@ private fun VaultListCard(
                             }
                         }
 
-                        Row {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             IconButton(onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 onCopyDetails(task.url)

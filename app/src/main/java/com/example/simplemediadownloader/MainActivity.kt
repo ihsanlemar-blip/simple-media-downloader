@@ -196,7 +196,7 @@ private fun MainAppScaffold(
                                 viewModel.fastDownload()
                             },
                             onExploreFormats = viewModel::chooseFormat,
-                            onRetryBackend = viewModel::retryYoutubeDlInitialization,
+                            onRetryBackend = viewModel::retryBackendInitialization,
                             onNavigateToVault = { viewModel.setTab(NavigationTab.VAULT) },
                             onPreviewMedia = viewModel::setPreviewMedia,
                         )
@@ -242,7 +242,7 @@ private fun MainAppScaffold(
                             onAllowThirdPartyGatewaysToggle = viewModel::setAllowThirdPartyGateways,
                             onMaxConcurrentSelect = viewModel::setMaxConcurrentDownloads,
                             onClearCache = viewModel::clearAppCache,
-                            onRetryEngine = viewModel::retryYoutubeDlInitialization,
+                            onRetryEngine = viewModel::retryBackendInitialization,
                         )
                     }
                 }

@@ -1,4 +1,4 @@
-﻿package com.example.simplemediadownloader
+package com.example.simplemediadownloader
 
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -8,61 +8,80 @@ class BackendInitializationState {
     private val _state = MutableStateFlow(
         BackendState(
             initializing = false,
-            youtubeDlReady = false,
-            ffmpegReady = false,
+            engineReady = false,
+            mediaProcessorReady = false,
         ),
     )
     val state: StateFlow<BackendState> = _state.asStateFlow()
 
     @Synchronized
-    fun beginYoutubeDlInitialization(): Boolean {
+    fun beginBackendInitialization(): Boolean {
         val current = _state.value
-        if (current.initializing || current.youtubeDlReady) return false
+        if (current.initializing || current.engineReady) return false
         _state.value = current.copy(
             initializing = true,
-            youtubeDlReady = false,
+            engineReady = false,
             error = null,
         )
         return true
     }
 
     @Synchronized
-    fun youtubeDlReady() {
+    fun backendReady() {
         _state.value = _state.value.copy(
             initializing = false,
-            youtubeDlReady = true,
+            engineReady = true,
             error = null,
         )
     }
 
     @Synchronized
-    fun youtubeDlFailed(message: String) {
+    fun backendFailed(message: String) {
         _state.value = _state.value.copy(
             initializing = false,
-            youtubeDlReady = false,
+            engineReady = false,
             error = message,
         )
     }
 
     @Synchronized
-    fun ffmpegInitializing() {
-        _state.value = _state.value.copy(ffmpegInitializing = true)
+    fun mediaProcessorInitializing() {
+        _state.value = _state.value.copy(mediaProcessorInitializing = true)
     }
 
     @Synchronized
-    fun ffmpegReady() {
+    fun mediaProcessorReady() {
         _state.value = _state.value.copy(
-            ffmpegInitializing = false,
-            ffmpegReady = true,
+            mediaProcessorInitializing = false,
+            mediaProcessorReady = true,
             error = null,
         )
     }
 
     @Synchronized
-    fun ffmpegFailed(message: String) {
+    fun mediaProcessorFailed(message: String) {
         _state.value = _state.value.copy(
-            ffmpegInitializing = false,
+            mediaProcessorInitializing = false,
             error = message,
         )
     }
+
+    // Deprecated compatibility bridges for transition
+    @Deprecated("Use beginBackendInitialization()", ReplaceWith("beginBackendInitialization()"))
+    fun beginYoutubeDlInitialization(): Boolean = beginBackendInitialization()
+
+    @Deprecated("Use backendReady()", ReplaceWith("backendReady()"))
+    fun youtubeDlReady() = backendReady()
+
+    @Deprecated("Use backendFailed(message)", ReplaceWith("backendFailed(message)"))
+    fun youtubeDlFailed(message: String) = backendFailed(message)
+
+    @Deprecated("Use mediaProcessorInitializing()", ReplaceWith("mediaProcessorInitializing()"))
+    fun ffmpegInitializing() = mediaProcessorInitializing()
+
+    @Deprecated("Use mediaProcessorReady()", ReplaceWith("mediaProcessorReady()"))
+    fun ffmpegReady() = mediaProcessorReady()
+
+    @Deprecated("Use mediaProcessorFailed(message)", ReplaceWith("mediaProcessorFailed(message)"))
+    fun ffmpegFailed(message: String) = mediaProcessorFailed(message)
 }

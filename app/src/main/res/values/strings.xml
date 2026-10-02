@@ -69,7 +69,8 @@
     <string name="share_subject">Shared via Simple Media Downloader</string>
 
     <!-- Vault Screen -->
-    <string name="vault_search_placeholder">Search downloaded media…</string>
+    <string name="vault_search_placeholder">Search downloaded media or creators…</string>
+    <string name="action_switch_view_mode">Switch view layout</string>
     <string name="action_select_all">Select All</string>
     <string name="action_clear_selection">Clear</string>
     <string name="btn_delete_selected">Delete selected (%1$d)</string>

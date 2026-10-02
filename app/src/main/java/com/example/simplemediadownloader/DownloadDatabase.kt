@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 
 @Database(
     entities = [DownloadTaskEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class DownloadDatabase : RoomDatabase() {
@@ -70,5 +70,12 @@ object DownloadDatabaseMigrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+    val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE download_tasks ADD COLUMN author TEXT")
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_download_tasks_author ON download_tasks (author)")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
 }

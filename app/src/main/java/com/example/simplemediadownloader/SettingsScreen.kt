@@ -5,7 +5,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -79,7 +83,10 @@ fun SettingsScreen(
                 title = stringResource(R.string.settings_section_theme),
                 icon = Icons.Rounded.Palette,
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    modifier = Modifier.selectableGroup(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     AppThemeMode.entries.forEach { mode ->
                         val isSelected = state.themeMode == mode
                         Surface(
@@ -92,10 +99,14 @@ fun SettingsScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onThemeSelect(mode)
-                                },
+                                .selectable(
+                                    selected = isSelected,
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        onThemeSelect(mode)
+                                    },
+                                    role = Role.RadioButton,
+                                ),
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
@@ -104,7 +115,7 @@ fun SettingsScreen(
                             ) {
                                 RadioButton(
                                     selected = isSelected,
-                                    onClick = { onThemeSelect(mode) },
+                                    onClick = null,
                                 )
                                 Column {
                                     Text(
@@ -131,7 +142,10 @@ fun SettingsScreen(
                 title = stringResource(R.string.settings_default_choice_label),
                 icon = Icons.Rounded.Tune,
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(
+                    modifier = Modifier.selectableGroup(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
                     DefaultDownloadChoice.entries.forEach { choice ->
                         val isSelected = state.defaultDownloadChoice == choice
                         Surface(
@@ -140,10 +154,14 @@ fun SettingsScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onDefaultChoiceSelect(choice)
-                                },
+                                .selectable(
+                                    selected = isSelected,
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        onDefaultChoiceSelect(choice)
+                                    },
+                                    role = Role.RadioButton,
+                                ),
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -152,7 +170,7 @@ fun SettingsScreen(
                             ) {
                                 RadioButton(
                                     selected = isSelected,
-                                    onClick = { onDefaultChoiceSelect(choice) },
+                                    onClick = null,
                                 )
                                 Text(
                                     text = choice.label,
@@ -204,7 +222,10 @@ fun SettingsScreen(
                             text = stringResource(R.string.settings_concurrency_label),
                             fontWeight = FontWeight.SemiBold,
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
                             listOf(1, 2, 3, 5).forEach { limit ->
                                 val isSelected = state.maxConcurrentDownloads == limit
                                 FilterChip(

@@ -62,18 +62,23 @@ class SimpleMediaDownloaderApp : Application() {
         DownloadNotifier.createChannel(this)
     }
 
-    fun retryYoutubeDlInitialization() {
+    fun retryBackendInitialization() {
         initNewPipe()
+    }
+
+    @Deprecated("Use retryBackendInitialization()", ReplaceWith("retryBackendInitialization()"))
+    fun retryYoutubeDlInitialization() {
+        retryBackendInitialization()
     }
 
     private fun initNewPipe() {
         try {
             NewPipe.init(OkHttpNewPipeDownloader(okHttpClient))
-            backendInitialization.youtubeDlReady()
-            backendInitialization.ffmpegReady()
+            backendInitialization.backendReady()
+            backendInitialization.mediaProcessorReady()
         } catch (error: Exception) {
             debugInitializationFailure("NewPipe", error)
-            backendInitialization.youtubeDlFailed(
+            backendInitialization.backendFailed(
                 "The download engine could not be prepared: ${error.localizedMessage}",
             )
         }

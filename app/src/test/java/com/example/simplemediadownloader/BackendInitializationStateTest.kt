@@ -7,38 +7,52 @@ import org.junit.Test
 
 class BackendInitializationStateTest {
     @Test
-    fun `youtube initialization can fail and retry without process restart`() {
+    fun `backend initialization can fail and retry without process restart`() {
         val initialization = BackendInitializationState()
 
         assertFalse(initialization.state.value.initializing)
         assertFalse(initialization.state.value.ready)
-        assertTrue(initialization.beginYoutubeDlInitialization())
-        assertFalse(initialization.beginYoutubeDlInitialization())
+        assertTrue(initialization.beginBackendInitialization())
+        assertFalse(initialization.beginBackendInitialization())
         assertTrue(initialization.state.value.initializing)
 
-        initialization.youtubeDlFailed("Engine unavailable")
+        initialization.backendFailed("Engine unavailable")
         assertFalse(initialization.state.value.initializing)
         assertEquals("Engine unavailable", initialization.state.value.error)
 
-        assertTrue(initialization.beginYoutubeDlInitialization())
-        initialization.youtubeDlReady()
+        assertTrue(initialization.beginBackendInitialization())
+        initialization.backendReady()
         assertTrue(initialization.state.value.ready)
-        assertFalse(initialization.beginYoutubeDlInitialization())
+        assertTrue(initialization.state.value.engineReady)
+        assertFalse(initialization.beginBackendInitialization())
     }
 
     @Test
-    fun `ffmpeg remains uninitialized until conversion explicitly needs it`() {
+    fun `media processor remains uninitialized until conversion explicitly needs it`() {
         val initialization = BackendInitializationState()
-        initialization.beginYoutubeDlInitialization()
-        initialization.youtubeDlReady()
+        initialization.beginBackendInitialization()
+        initialization.backendReady()
 
-        assertFalse(initialization.state.value.ffmpegInitializing)
-        assertFalse(initialization.state.value.ffmpegReady)
+        assertFalse(initialization.state.value.mediaProcessorInitializing)
+        assertFalse(initialization.state.value.mediaProcessorReady)
+
+        initialization.mediaProcessorInitializing()
+        assertTrue(initialization.state.value.mediaProcessorInitializing)
+        initialization.mediaProcessorReady()
+        assertTrue(initialization.state.value.mediaProcessorReady)
+        assertFalse(initialization.state.value.mediaProcessorInitializing)
+    }
+
+    @Test
+    fun `legacy naming bridges maintain backward compatibility`() {
+        val initialization = BackendInitializationState()
+        assertTrue(initialization.beginYoutubeDlInitialization())
+        initialization.youtubeDlReady()
+        assertTrue(initialization.state.value.youtubeDlReady)
 
         initialization.ffmpegInitializing()
         assertTrue(initialization.state.value.ffmpegInitializing)
         initialization.ffmpegReady()
         assertTrue(initialization.state.value.ffmpegReady)
-        assertFalse(initialization.state.value.ffmpegInitializing)
     }
 }

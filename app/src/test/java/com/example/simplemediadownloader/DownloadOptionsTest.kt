@@ -63,7 +63,7 @@ class DownloadOptionsTest {
 
     @Test
     fun `resolution ladder preserves native qualities without transcoding`() {
-        val downloader = YtDlpFormatDiscoveryEngine()
+        val downloader = NewPipeFormatDiscoveryEngine()
         val native1080 = AvailableFormat(
             key = "video:1080",
             mode = DownloadMode.VIDEO,

@@ -151,7 +151,43 @@ class DownloadDatabaseMigrationTest {
     }
 
     @Test
-    fun `full migration 1 to 4 preserves data integrity across all versions`() {
+    fun `migrate 4 to 5 preserves tasks and adds author column and index`() {
+        helper.createDatabase(testDbName, 4).apply {
+            execSQL(
+                """INSERT INTO download_tasks (
+                    task_id, source_url, canonical_url, display_title, platform, format_key, format_id,
+                    download_mode, file_extension, width, height, fps, bitrate_kbps,
+                    codec, format_note, size_is_approximate, source_height, requires_downscale,
+                    is_quick_preset, status, processing_stage, created_at, http_headers
+                ) VALUES (
+                    'task-v4', 'https://example.com/video?id=456', 'https://example.com/video?id=456',
+                    'Title V4', 'generic', 'v1080', '137',
+                    'VIDEO', 'mp4', 1920, 1080, 60, 4000,
+                    'h264', '', 0, 1080, 0,
+                    0, 'COMPLETED', 'COMPLETED', 4000, '{"User-Agent":"Test"}'
+                )""",
+            )
+            close()
+        }
+
+        val db5 = helper.runMigrationsAndValidate(
+            testDbName,
+            5,
+            true,
+            DownloadDatabaseMigrations.MIGRATION_4_5,
+        )
+
+        db5.query("SELECT task_id, display_title, author FROM download_tasks WHERE task_id = 'task-v4'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("task-v4", cursor.getString(0))
+            assertEquals("Title V4", cursor.getString(1))
+            // Nullable author column defaults to NULL
+            assertTrue(cursor.isNull(2))
+        }
+    }
+
+    @Test
+    fun `full migration 1 to 5 preserves data integrity across all versions`() {
         helper.createDatabase(testDbName, 1).apply {
             execSQL(
                 """INSERT INTO download_tasks (
@@ -171,16 +207,17 @@ class DownloadDatabaseMigrationTest {
 
         val dbFinal = helper.runMigrationsAndValidate(
             testDbName,
-            4,
+            5,
             true,
             *DownloadDatabaseMigrations.ALL,
         )
 
-        dbFinal.query("SELECT task_id, display_title, canonical_url FROM download_tasks WHERE task_id = 'task-full'").use { cursor ->
+        dbFinal.query("SELECT task_id, display_title, canonical_url, author FROM download_tasks WHERE task_id = 'task-full'").use { cursor ->
             assertTrue(cursor.moveToFirst())
             assertEquals("task-full", cursor.getString(0))
             assertEquals("Full Migration", cursor.getString(1))
             assertEquals("https://example.com/full", cursor.getString(2))
+            assertTrue(cursor.isNull(3))
         }
     }
 }

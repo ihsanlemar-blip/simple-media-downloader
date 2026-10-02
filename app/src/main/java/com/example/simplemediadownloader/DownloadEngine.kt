@@ -19,6 +19,7 @@ data class DownloadRequest(
     val url: String,
     val title: String,
     val format: AvailableFormat,
+    val author: String? = null,
 )
 
 sealed interface DownloadExecutionResult {
@@ -100,8 +101,6 @@ interface DownloadEngine {
 
     suspend fun cancel(processId: String): Boolean
 }
-
-typealias YtDlpDownloadEngine = OkHttpDownloadEngine
 
 class OkHttpDownloadEngine(
     private val dispatchers: AppDispatchers = AppDispatchers(),
@@ -222,7 +221,7 @@ class OkHttpDownloadEngine(
                 } else {
                     val rawMessage = (discovery as? FormatDiscoveryResult.Failure)?.message
                         ?: "Stream resolution failed."
-                    val mapped = TechnicalFailureMapper.map(rawMessage, FailureOrigin.YT_DLP)
+                    val mapped = TechnicalFailureMapper.map(rawMessage, FailureOrigin.DOWNLOAD_ENGINE)
                     return@withContext DownloadExecutionResult.Failure(
                         message = mapped.message,
                         category = mapped.category,
@@ -508,7 +507,7 @@ class OkHttpDownloadEngine(
                 DownloadExecutionResult.Cancelled
             } else {
                 val rawMessage = e.localizedMessage ?: "Download encountered an error."
-                val mapped = TechnicalFailureMapper.map(rawMessage, FailureOrigin.YT_DLP)
+                val mapped = TechnicalFailureMapper.map(rawMessage, FailureOrigin.DOWNLOAD_ENGINE)
                 DownloadExecutionResult.Failure(
                     message = mapped.message,
                     category = mapped.category,

@@ -124,7 +124,7 @@ class StorageExporterTest {
         val output = exporter.exportCompletedFile(
             request,
             destination,
-            YtDlpDownloadEngine.OUTPUT_MARKER + source.absolutePath,
+            OkHttpDownloadEngine.OUTPUT_MARKER + source.absolutePath,
         ).getOrThrow()
         exporter.cleanup(destination)
 

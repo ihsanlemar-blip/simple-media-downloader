@@ -218,6 +218,38 @@ class DownloadTaskDaoTest {
         assertEquals(testHeaders, retrievedRecord.format.httpHeaders)
     }
 
+    @Test
+    fun `searchHistory matches author creator title and sourceUrl`() = runBlocking {
+        val completed1 = record("author-task-1").copy(
+            status = DownloadTaskStatus.COMPLETED,
+            stage = DownloadProcessingStage.COMPLETED,
+            displayTitle = "Epic Parkour",
+            author = "NinjaWarrior99",
+            sourceUrl = "https://tiktok.com/@ninjawarrior99/video/1",
+        ).toEntity()
+        val completed2 = record("author-task-2").copy(
+            status = DownloadTaskStatus.COMPLETED,
+            stage = DownloadProcessingStage.COMPLETED,
+            displayTitle = "Cooking Pasta",
+            author = "ChefLuigi",
+            sourceUrl = "https://instagram.com/reel/xyz123",
+        ).toEntity()
+        dao.insert(completed1)
+        dao.insert(completed2)
+
+        val authorResults = dao.searchHistory("Ninja").first()
+        assertEquals(1, authorResults.size)
+        assertEquals("author-task-1", authorResults[0].taskId)
+
+        val titleResults = dao.searchHistory("Pasta").first()
+        assertEquals(1, titleResults.size)
+        assertEquals("author-task-2", titleResults[0].taskId)
+
+        val urlResults = dao.searchHistory("instagram.com").first()
+        assertEquals(1, urlResults.size)
+        assertEquals("author-task-2", urlResults[0].taskId)
+    }
+
     private fun record(id: String) = DownloadRecord(
         taskId = id,
         sourceUrl = "https://example.test/video",

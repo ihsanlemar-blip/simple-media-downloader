@@ -197,7 +197,7 @@ class ShareDownloadViewModel @JvmOverloads constructor(
 
     fun retryEngineInitialization() {
         (getApplication<Application>() as? SimpleMediaDownloaderApp)
-            ?.retryYoutubeDlInitialization()
+            ?.retryBackendInitialization()
     }
 
     @Synchronized
@@ -254,6 +254,7 @@ class ShareDownloadViewModel @JvmOverloads constructor(
             url = url,
             title = mediaTitle,
             format = format,
+            author = state.catalog?.author,
         )
         viewModelScope.launch {
             val alreadyPersisted = savedStateHandle.get<Boolean>(KEY_PERSISTED) == true

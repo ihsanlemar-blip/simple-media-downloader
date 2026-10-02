@@ -26,21 +26,7 @@ class DownloadRepository(
         records.map(DownloadRecord::toTask)
     }
     val recentHistory: Flow<List<DownloadTask>> = historyStore.recentHistory.map { records ->
-        val tasks = ArrayList<DownloadTask>(records.size)
-        for (record in records) {
-            val output = record.output
-            val validated = if (
-                record.status == DownloadTaskStatus.COMPLETED &&
-                output != null &&
-                !storageExporter.outputExists(output)
-            ) {
-                record.copy(output = null)
-            } else {
-                record
-            }
-            tasks += validated.toTask()
-        }
-        tasks
+        records.map(DownloadRecord::toTask)
     }
     val tasks: Flow<List<DownloadTask>> = combine(activeTasks, recentHistory) { active, history ->
         active + history
@@ -435,6 +421,7 @@ private fun DownloadRequest.toQueuedRecord(createdAt: Long): DownloadRecord = Do
     displayTitle = title,
     platform = PlatformResolver.fromUrl(url),
     format = format,
+    author = author,
     status = DownloadTaskStatus.QUEUED,
     stage = DownloadProcessingStage.QUEUED,
     progressPercent = null,
@@ -456,6 +443,7 @@ private fun DownloadRecord.toRequest(): DownloadRequest = DownloadRequest(
     url = sourceUrl,
     title = displayTitle,
     format = format,
+    author = author,
 )
 
 private fun DownloadRecord.transitionTo(state: DownloadState, now: Long): DownloadRecord {

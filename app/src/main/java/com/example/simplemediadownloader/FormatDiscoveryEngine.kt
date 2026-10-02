@@ -20,8 +20,6 @@ interface FormatDiscoveryEngine {
     }
 }
 
-typealias YtDlpFormatDiscoveryEngine = NewPipeFormatDiscoveryEngine
-
 class NewPipeFormatDiscoveryEngine(
     private val dispatchers: AppDispatchers = AppDispatchers(),
     private val preferenceStore: DownloadPreferenceStore? = null,

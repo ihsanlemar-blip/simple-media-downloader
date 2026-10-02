@@ -77,7 +77,7 @@ internal class DownloadsStorageExporter(
             val required = if (estimate != null) {
                 StorageCapacityPolicy.requiredBytes(
                     estimatedMediaBytes = estimate,
-                    requiresProcessing = request.format.requiresFfmpeg,
+                    requiresProcessing = request.format.requiresMuxing,
                 )
             } else {
                 StorageCapacityPolicy.defaultReserveBytes(request.format.mode)
@@ -105,7 +105,7 @@ internal class DownloadsStorageExporter(
         resultOf {
             val source = WorkingFileLocator.find(destination.directory, commandOutput)
                 ?: throw FileNotFoundException(
-                    "yt-dlp completed without a final file in the temporary workspace.",
+                    "Download engine completed without a final file in the temporary workspace.",
                 )
             val actualExtension = source.extension.ifBlank { request.format.extension }
             val displayName = MediaExportPolicy.sanitizeDisplayName(
@@ -574,8 +574,8 @@ internal object StorageCapacityPolicy {
 internal object WorkingFileLocator {
     fun find(directory: File, commandOutput: String): File? {
         val markedPath = commandOutput.lineSequence()
-            .lastOrNull { it.startsWith(YtDlpDownloadEngine.OUTPUT_MARKER) }
-            ?.removePrefix(YtDlpDownloadEngine.OUTPUT_MARKER)
+            .lastOrNull { it.startsWith(OkHttpDownloadEngine.OUTPUT_MARKER) }
+            ?.removePrefix(OkHttpDownloadEngine.OUTPUT_MARKER)
             ?.trim()
             ?.trim('"')
         val marked = markedPath?.let(::File)?.takeIf { isCompletedFile(it, directory) }
@@ -594,7 +594,7 @@ internal object WorkingFileLocator {
             TEMPORARY_SUFFIXES.none { canonical.name.endsWith(it, ignoreCase = true) }
     }.getOrDefault(false)
 
-    private val TEMPORARY_SUFFIXES = listOf(".part", ".ytdl", ".tmp", ".temp")
+    private val TEMPORARY_SUFFIXES = listOf(".part", ".tmp", ".temp")
 }
 
 private inline fun <T> resultOf(block: () -> T): Result<T> = try {

@@ -35,7 +35,12 @@ interface DownloadTaskDao {
     @Query(
         """SELECT * FROM download_tasks
            WHERE status IN ('COMPLETED', 'CANCELLED', 'FAILED', 'INTERRUPTED')
-           AND display_title LIKE '%' || :query || '%'
+           AND (
+               display_title LIKE '%' || :query || '%'
+               OR (author IS NOT NULL AND author LIKE '%' || :query || '%')
+               OR source_url LIKE '%' || :query || '%'
+               OR canonical_url LIKE '%' || :query || '%'
+           )
            ORDER BY COALESCE(completed_at, created_at) DESC""",
     )
     fun searchHistory(query: String): Flow<List<DownloadTaskEntity>>
@@ -43,7 +48,12 @@ interface DownloadTaskDao {
     @Query(
         """SELECT * FROM download_tasks
            WHERE status IN ('COMPLETED', 'CANCELLED', 'FAILED', 'INTERRUPTED')
-           AND display_title LIKE '%' || :query || '%'
+           AND (
+               display_title LIKE '%' || :query || '%'
+               OR (author IS NOT NULL AND author LIKE '%' || :query || '%')
+               OR source_url LIKE '%' || :query || '%'
+               OR canonical_url LIKE '%' || :query || '%'
+           )
            ORDER BY COALESCE(completed_at, created_at) DESC
            LIMIT :limit OFFSET :offset""",
     )

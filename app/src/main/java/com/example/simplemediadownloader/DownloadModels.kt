@@ -25,8 +25,11 @@ data class AvailableFormat(
     val isQuickPreset: Boolean = false,
     val httpHeaders: Map<String, String>? = null,
 ) {
-    val requiresFfmpeg: Boolean
+    val requiresMuxing: Boolean
         get() = requiresDownscale || companionAudioFormatId != null || mode == DownloadMode.AUDIO_MP3
+
+    val requiresFfmpeg: Boolean
+        get() = requiresMuxing
 
     val isDataSaver: Boolean
         get() = (mode == DownloadMode.VIDEO && height in 1..540) ||
@@ -207,6 +210,7 @@ data class DownloadTask(
     val format: AvailableFormat,
     val state: DownloadState = DownloadState.Queued,
     val platform: String = PlatformResolver.fromUrl(url),
+    val author: String? = null,
     val createdAt: Long = 0L,
     val startedAt: Long? = null,
     val completedAt: Long? = null,
@@ -218,10 +222,13 @@ data class DownloadTask(
 
 data class BackendState(
     val initializing: Boolean = false,
-    val youtubeDlReady: Boolean = true,
-    val ffmpegInitializing: Boolean = false,
-    val ffmpegReady: Boolean = true,
+    val engineReady: Boolean = true,
+    val mediaProcessorInitializing: Boolean = false,
+    val mediaProcessorReady: Boolean = true,
     val error: String? = null,
 ) {
-    val ready: Boolean get() = !initializing && youtubeDlReady
+    val ready: Boolean get() = !initializing && engineReady
+    val youtubeDlReady: Boolean get() = engineReady
+    val ffmpegInitializing: Boolean get() = mediaProcessorInitializing
+    val ffmpegReady: Boolean get() = mediaProcessorReady
 }
