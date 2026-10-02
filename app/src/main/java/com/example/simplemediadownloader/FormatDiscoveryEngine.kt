@@ -93,7 +93,7 @@ class NewPipeFormatDiscoveryEngine(
                 } else {
                     FormatDiscoveryResult.Success(catalog)
                 }
-            } catch (error: Exception) {
+            } catch (error: Throwable) {
                 FormatDiscoveryResult.Failure(
                     error.localizedMessage ?: "Could not inspect this URL.",
                 )

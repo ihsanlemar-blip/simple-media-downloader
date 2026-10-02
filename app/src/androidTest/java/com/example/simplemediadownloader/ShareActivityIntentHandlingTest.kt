@@ -18,7 +18,7 @@ class ShareActivityIntentHandlingTest {
         val intent = Intent(context, ShareDownloadActivity::class.java).apply {
             action = Intent.ACTION_SEND
             type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+            putExtra(Intent.EXTRA_TEXT, "https://www.tiktok.com/@creativecook/video/123456")
         }
 
         val scenario = ActivityScenario.launch<ShareDownloadActivity>(intent)
