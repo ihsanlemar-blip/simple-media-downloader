@@ -1,6 +1,7 @@
 package com.example.simplemediadownloader
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -38,7 +39,7 @@ class AppStartupAndNavigationTest {
     @Test
     fun urlInputFieldAcceptsInputWithoutCrash() {
         val testUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-        composeRule.onNodeWithText("Paste or type a supported link…", substring = true)
+        composeRule.onNode(hasSetTextAction())
             .assertIsDisplayed()
             .performClick()
             .performTextInput(testUrl)
