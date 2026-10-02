@@ -132,7 +132,28 @@ The application ID is retained as `com.example.simplemediadownloader` to guarant
 
 Release builds use `proguard-android-optimize.txt`, R8 minification, and resource shrinking. Room supplies its own `RoomDatabase` consumer rule, while Compose is statically linked. A Baseline Profile is not included because one has not been generated and validated from representative journeys on a physical device.
 
-Production release APKs and the App Bundle are unsigned unless a distributor supplies a signing configuration. Do not distribute an APK signed with the debug key.
+### Production Signing & Release Readiness
+
+Normal CI and local builds produce **unsigned release artifacts** (`app-release-unsigned.apk` and `app-release.aab`) to guarantee reproducible builds and avoid storing secrets in the repository. Keystores, passwords, and private keys must never be checked into version control.
+
+To produce an officially signed production release:
+1. Store the release keystore securely outside the repository (or in encrypted GitHub Actions secrets).
+2. Supply the following environment variables during build execution:
+   * `RELEASE_KEYSTORE_FILE`: Absolute path to the keystore file (`.jks` / `.keystore`).
+   * `RELEASE_KEYSTORE_PASSWORD`: Keystore password.
+   * `RELEASE_KEY_ALIAS`: Key alias.
+   * `RELEASE_KEY_PASSWORD`: Key password.
+3. When these variables are detected, Gradle automatically attaches the release signing configuration. If absent, builds remain safely unsigned. Do not distribute builds signed with the Android debug key.
+
+### Release Validation Workflow
+
+In addition to standard CI (which runs unit tests, debug & release lint, debug/release assembly, and API 29 minimum-SDK emulator tests on every push/PR), a dedicated release validation workflow is configured in `.github/workflows/android-release-validation.yml`.
+
+Triggered via `workflow_dispatch` or version tags (`v*`), it runs:
+* Comprehensive unit and Room migration tests
+* Android Lint on both Debug and Release variants (`:app:lintDebug` and `:app:lintRelease`)
+* Minified R8 release APK and release App Bundle generation
+* Multi-version Android emulator matrix testing across **API 29** (Android 10), **API 33** (Android 13), and **API 35** (Android 15)
 
 ## Dependencies
 

@@ -1,15 +1,14 @@
-name: Android CI
+name: Android Release Validation
 
 on:
+  workflow_dispatch:
   push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
+    tags:
+      - 'v*'
 
 jobs:
-  build-and-test:
+  release-build-and-lint:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -46,7 +45,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: release-build-artifacts
+          name: release-validation-artifacts
           path: |
             app/build/outputs/apk/release/*.apk
             app/build/outputs/bundle/release/*.aab
@@ -57,15 +56,19 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-and-lint-reports
+          name: release-validation-reports
           path: |
             app/build/reports/tests/
             app/build/reports/lint-results-*.html
           retention-days: 7
 
-  emulator-tests:
+  release-emulator-matrix:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [29, 33, 35]
 
     steps:
       - name: Checkout repository
@@ -87,10 +90,10 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Run Android Instrumented Tests on Emulator
+      - name: Run Android Instrumented Tests on Emulator (API ${{ matrix.api-level }})
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 29
+          api-level: ${{ matrix.api-level }}
           target: default
           arch: x86_64
           profile: pixel
@@ -98,13 +101,12 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-audio -no-boot-anim -camera-back none
           script: ./gradlew :app:connectedDebugAndroidTest
 
-      - name: Upload Connected Test Reports
+      - name: Upload Connected Test Reports (API ${{ matrix.api-level }})
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: connected-test-reports
+          name: connected-test-reports-api-${{ matrix.api-level }}
           path: |
             app/build/reports/androidTests/connected/
             app/build/outputs/androidTest-results/
           retention-days: 7
-

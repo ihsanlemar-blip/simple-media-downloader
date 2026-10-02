@@ -1,5 +1,6 @@
 package com.example.simplemediadownloader
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import org.schabi.newpipe.extractor.NewPipe
@@ -93,9 +94,15 @@ class NewPipeFormatDiscoveryEngine(
                 } else {
                     FormatDiscoveryResult.Success(catalog)
                 }
-            } catch (error: Throwable) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
                 FormatDiscoveryResult.Failure(
-                    error.localizedMessage ?: "Could not inspect this URL.",
+                    e.localizedMessage ?: "Could not inspect this URL.",
+                )
+            } catch (e: LinkageError) {
+                FormatDiscoveryResult.Failure(
+                    e.localizedMessage ?: "Platform runtime incompatible with this extractor.",
                 )
             }
         }
