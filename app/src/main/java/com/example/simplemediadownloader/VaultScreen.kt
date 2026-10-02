@@ -128,19 +128,22 @@ fun VaultScreen(
                     color = MaterialTheme.colorScheme.primaryContainer,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                    FlowRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Text(
                             text = "${state.selectedVaultTaskIds.size} selected",
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.align(Alignment.CenterVertically),
                         )
-                        FlowRow(
+                        Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             TextButton(onClick = onSelectAllTasks) {
                                 Text(stringResource(R.string.action_select_all), fontWeight = FontWeight.SemiBold)
@@ -573,7 +576,7 @@ private fun MediaThumbnailHeader(
                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
                 shadowElevation = 4.dp,
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(48.dp)
                     .clickable {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onPlayClick()

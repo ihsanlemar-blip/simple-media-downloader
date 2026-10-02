@@ -623,11 +623,6 @@ class MainViewModel @JvmOverloads constructor(
             .retryBackendInitialization()
     }
 
-    @Deprecated("Use retryBackendInitialization()", ReplaceWith("retryBackendInitialization()"))
-    fun retryYoutubeDlInitialization() {
-        retryBackendInitialization()
-    }
-
     fun setDefaultDownloadChoice(choice: DefaultDownloadChoice) {
         viewModelScope.launch {
             runCatching { preferenceStore.setDefaultChoice(choice) }

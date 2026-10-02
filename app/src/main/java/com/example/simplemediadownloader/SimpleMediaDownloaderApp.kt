@@ -66,11 +66,6 @@ class SimpleMediaDownloaderApp : Application() {
         initNewPipe()
     }
 
-    @Deprecated("Use retryBackendInitialization()", ReplaceWith("retryBackendInitialization()"))
-    fun retryYoutubeDlInitialization() {
-        retryBackendInitialization()
-    }
-
     private fun initNewPipe() {
         try {
             NewPipe.init(OkHttpNewPipeDownloader(okHttpClient))

@@ -63,6 +63,9 @@ android {
         getByName("test") {
             assets.srcDirs(files("$projectDir/schemas"))
         }
+        getByName("androidTest") {
+            assets.srcDirs(files("$projectDir/schemas"))
+        }
     }
 
     testOptions {
@@ -105,8 +108,6 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     val media3Version = "1.5.1"
-    implementation("androidx.media3:media3-transformer:$media3Version")
-    implementation("androidx.media3:media3-muxer:$media3Version")
     implementation("androidx.media3:media3-exoplayer:$media3Version")
     implementation("androidx.media3:media3-ui:$media3Version")
 
@@ -116,6 +117,8 @@ dependencies {
     testImplementation("org.robolectric:robolectric:4.16.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    androidTestImplementation("androidx.test:rules:1.6.1")
+    androidTestImplementation("androidx.room:room-testing:$roomVersion")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

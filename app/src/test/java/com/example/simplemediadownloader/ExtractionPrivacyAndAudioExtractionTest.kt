@@ -164,9 +164,11 @@ class ExtractionPrivacyAndAudioExtractionTest {
     }
 
     @Test
-    fun `ensureFfmpeg is not present on SimpleMediaDownloaderApp`() {
+    fun `legacy media stubs are not present on SimpleMediaDownloaderApp`() {
         val appClass = SimpleMediaDownloaderApp::class.java
-        val ffmpegMethod = appClass.methods.firstOrNull { it.name == "ensureFfmpeg" }
-        assertTrue("ensureFfmpeg stub must be completely removed from SimpleMediaDownloaderApp", ffmpegMethod == null)
+        val stubMethod = appClass.methods.firstOrNull { it.name == "ensureFfmpeg" }
+        assertTrue("Legacy ensure stub must be completely removed from SimpleMediaDownloaderApp", stubMethod == null)
+        val legacyRetry = appClass.methods.firstOrNull { it.name == "retryYoutubeDlInitialization" }
+        assertTrue("Legacy retry method must be completely removed from SimpleMediaDownloaderApp", legacyRetry == null)
     }
 }

@@ -28,8 +28,6 @@ data class AvailableFormat(
     val requiresMuxing: Boolean
         get() = requiresDownscale || companionAudioFormatId != null || mode == DownloadMode.AUDIO_MP3
 
-    val requiresFfmpeg: Boolean
-        get() = requiresMuxing
 
     val isDataSaver: Boolean
         get() = (mode == DownloadMode.VIDEO && height in 1..540) ||
@@ -228,7 +226,4 @@ data class BackendState(
     val error: String? = null,
 ) {
     val ready: Boolean get() = !initializing && engineReady
-    val youtubeDlReady: Boolean get() = engineReady
-    val ffmpegInitializing: Boolean get() = mediaProcessorInitializing
-    val ffmpegReady: Boolean get() = mediaProcessorReady
 }

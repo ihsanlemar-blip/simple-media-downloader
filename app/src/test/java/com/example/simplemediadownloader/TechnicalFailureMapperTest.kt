@@ -40,9 +40,12 @@ class TechnicalFailureMapperTest {
     }
 
     @Test
-    fun `legacy failure origin aliases resolve to current origins`() {
-        assertEquals(FailureOrigin.DOWNLOAD_ENGINE, FailureOrigin.YT_DLP)
-        assertEquals(FailureOrigin.MEDIA_PROCESSOR, FailureOrigin.FFMPEG)
+    fun `failure origin entries and media muxer errors are mapped properly`() {
+        val allOrigins = FailureOrigin.values().toSet()
+        assertTrue(allOrigins.contains(FailureOrigin.DOWNLOAD_ENGINE))
+        assertTrue(allOrigins.contains(FailureOrigin.MEDIA_PROCESSOR))
+        val mapped = TechnicalFailureMapper.map("fatal: media muxer error encountered", FailureOrigin.MEDIA_PROCESSOR)
+        assertEquals(DownloadFailureCategory.CONVERTER_FAILURE, mapped.category)
     }
 
     private data class Case(

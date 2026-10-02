@@ -6,7 +6,7 @@
 > 🚀 **Direct Download**: Grab the latest ready-to-install signed universal APK from GitHub Releases:
 > **[SimpleMediaDownloader-v2.5.0-universal.apk](https://github.com/ihsanlemar-blip/simple-media-downloader/releases/download/v2.5.0/SimpleMediaDownloader-v2.5.0-universal.apk)** *(Supports `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`)*
 
-Simple Media Downloader is a flagship Kotlin and Jetpack Compose Android application for saving publicly accessible media from TikTok, Instagram Reels, Facebook, YouTube, X (Twitter), and Reddit with full metadata and original title preservation. Format extraction runs on-device using TeamNewPipe's NewPipeExtractor alongside specialized direct network scrapers. Media streams are downloaded with OkHttp (featuring RFC 7233 range-request validation, automatic continuous fallback, and destination security policies), and audio/video track merging is processed natively on-device using AndroidX Media3 (Transformer and MediaMuxer) without any embedded Python, QuickJS, or yt-dlp binaries.
+Simple Media Downloader is a flagship Kotlin and Jetpack Compose Android application for saving publicly accessible media from TikTok, Instagram Reels, Facebook, YouTube, X (Twitter), and Reddit with full metadata and original title preservation. Format extraction runs on-device using TeamNewPipe's NewPipeExtractor alongside specialized direct network scrapers. Media streams are downloaded with OkHttp (featuring RFC 7233 range-request validation, automatic continuous fallback, and destination security policies), and audio/video track merging and extraction are processed natively on-device using platform `android.media.MediaMuxer`, `MediaExtractor`, and `MediaCodec` APIs without any external binaries or runtimes. In-app media preview playback is powered by AndroidX Media3 (ExoPlayer and UI).
 
 The app does not bypass DRM, private accounts, authentication, paywalls, or website policy. Source support changes as websites and extractor definitions evolve.
 
@@ -26,7 +26,7 @@ single-screen Compose UI            compact ACTION_SEND text/plain window
                                DownloadService
                         foreground queue owner (2 active)
                                       |
-                   OkHttpDownloadEngine / AndroidX Media3 Muxer
+                   OkHttpDownloadEngine / MediaStreamMuxer (MediaMuxer)
                                       |
                  direct CDN streams + native container validation
 ```
@@ -34,7 +34,7 @@ single-screen Compose UI            compact ACTION_SEND text/plain window
 - `SimpleMediaDownloaderApp` constructs the dependency graph without a DI framework. OkHttpClient is hardened with an RFC 6265 destination-scoped cookie jar, DNS rebinding/SSRF protection, and cleartext enforcement.
 - `MainViewModel` and `ShareDownloadViewModel` enqueue commands and observe repository `Flow`s. They do not own downloader processes.
 - `DownloadRepository` coordinates discovery, durable state transitions, export, retry, deletion, duplicate detection, and process-death recovery.
-- `DownloadService` owns queue admission, active OkHttp/Media3 work, cancellation, and rate-limited notifications. The default concurrency is two downloads.
+- `DownloadService` owns queue admission, active OkHttp/MediaStreamMuxer work, cancellation, and rate-limited notifications. The default concurrency is two downloads.
 - `DownloadDatabase` stores durable tasks and history through Room. A running task recovered after process death is requeued instead of remaining incorrectly marked as downloading.
 - `DownloadsStorageExporter` writes into dedicated app cache workspaces first, then streams the completed file into MediaStore with `IS_PENDING` publication. Failed, cancelled, and abandoned pending exports are cleaned up.
 
@@ -123,11 +123,11 @@ Outputs:
 - minified release APK (universal): `app/build/outputs/apk/release/app-release-unsigned.apk`
 - release App Bundle: `app/build/outputs/bundle/release/app-release.aab`
 
-The release build generates a universal APK supporting all Android architectures (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`) because format extraction, OkHttp downloading, and AndroidX Media3 muxing operate via pure Java/Kotlin and platform MediaCodec/MediaMuxer APIs without architecture-bound native `.so` libraries. When distributing through app stores supporting Android App Bundles, the release App Bundle (`app-release.aab`) enables store-managed delivery.
+The release build generates a universal APK supporting all Android architectures (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`) because format extraction, OkHttp downloading, and container muxing operate via pure Java/Kotlin and platform MediaCodec/MediaMuxer APIs without architecture-bound native `.so` libraries. When distributing through app stores supporting Android App Bundles, the release App Bundle (`app-release.aab`) enables store-managed delivery.
 
 ### Application ID & Upgrade Compatibility
 
-The application ID is retained as `com.example.simplemediadownloader` to guarantee backward upgrade compatibility with existing distributed builds (such as `v2.5.0` on GitHub Releases). Modifying the application ID would break in-place updates on installed devices, orphaning existing Room database records, stored download queues, and preferences within the sandbox.
+The application ID is retained as `com.example.simplemediadownloader` to guarantee backward upgrade compatibility with existing distributed builds (such as `v2.5.0` on GitHub Releases). Modifying the application ID would break in-place updates on installed devices, orphaning existing Room database records, stored download queues, and preferences within the sandbox. A future migration to a new production application ID (such as `com.simplemediadownloader.app`) would require a deliberate new-app migration strategy or an export/import mechanism for Room database records and preferences.
 
 Release builds use `proguard-android-optimize.txt`, R8 minification, and resource shrinking. Room supplies its own `RoomDatabase` consumer rule, while Compose is statically linked. A Baseline Profile is not included because one has not been generated and validated from representative journeys on a physical device.
 
@@ -141,16 +141,15 @@ Production release APKs and the App Bundle are unsigned unless a distributor sup
 - Room 2.8.4 with KSP, coroutine, and Flow support
 - `com.github.TeamNewPipe:NewPipeExtractor:v0.26.5`
 - `com.squareup.okhttp3:okhttp:4.12.0`
-- `androidx.media3:media3-transformer:1.5.1`
-- `androidx.media3:media3-muxer:1.5.1`
-- `androidx.media3:media3-exoplayer:1.5.1`
+- `androidx.media3:media3-exoplayer:1.5.1` and `androidx.media3:media3-ui:1.5.1` (preview playback)
+- Native Android platform `android.media.MediaMuxer`, `MediaExtractor`, and `MediaCodec` APIs for container muxing and audio extraction
 
-Native AndroidX Media3 handles track muxing on-device. External Python/QuickJS runtimes are not used.
+Native platform `android.media.MediaMuxer` handles track muxing and audio extraction on-device, and AndroidX Media3 ExoPlayer provides lightweight in-app media preview playback. External Python/QuickJS/yt-dlp runtimes are not used.
 
 ## Known limitations
 
 - Site support depends on platform web changes and NewPipe extractor updates. Login-required, private, removed, DRM-protected, or rate-limited media cannot be downloaded.
-- Audio and video stream muxing requires local processing via AndroidX Media3 Muxer.
+- Audio and video stream muxing requires local processing via platform `android.media.MediaMuxer`.
 - Android 15 can impose a time budget on `dataSync` foreground services; interrupted tasks are requeued for recovery rather than silently reported as complete.
 - Play Store and individual website policies may restrict downloader distribution or use. Compliance remains the distributor's and user's responsibility.
 

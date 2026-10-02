@@ -4,15 +4,7 @@ enum class FailureOrigin {
     DOWNLOAD_ENGINE,
     MEDIA_PROCESSOR,
     STORAGE,
-    ANDROID;
-
-    companion object {
-        @Deprecated("Use DOWNLOAD_ENGINE", ReplaceWith("DOWNLOAD_ENGINE"))
-        val YT_DLP = DOWNLOAD_ENGINE
-
-        @Deprecated("Use MEDIA_PROCESSOR", ReplaceWith("MEDIA_PROCESSOR"))
-        val FFMPEG = MEDIA_PROCESSOR
-    }
+    ANDROID,
 }
 
 internal object TechnicalFailureMapper {
@@ -36,7 +28,7 @@ internal object TechnicalFailureMapper {
                 normalized,
                 "media processor error",
                 "media converter error",
-                "ffmpeg error",
+                "media muxer error",
                 "muxer error",
                 "postprocessing error",
                 "conversion failed",

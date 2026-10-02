@@ -65,23 +65,4 @@ class BackendInitializationState {
             error = message,
         )
     }
-
-    // Deprecated compatibility bridges for transition
-    @Deprecated("Use beginBackendInitialization()", ReplaceWith("beginBackendInitialization()"))
-    fun beginYoutubeDlInitialization(): Boolean = beginBackendInitialization()
-
-    @Deprecated("Use backendReady()", ReplaceWith("backendReady()"))
-    fun youtubeDlReady() = backendReady()
-
-    @Deprecated("Use backendFailed(message)", ReplaceWith("backendFailed(message)"))
-    fun youtubeDlFailed(message: String) = backendFailed(message)
-
-    @Deprecated("Use mediaProcessorInitializing()", ReplaceWith("mediaProcessorInitializing()"))
-    fun ffmpegInitializing() = mediaProcessorInitializing()
-
-    @Deprecated("Use mediaProcessorReady()", ReplaceWith("mediaProcessorReady()"))
-    fun ffmpegReady() = mediaProcessorReady()
-
-    @Deprecated("Use mediaProcessorFailed(message)", ReplaceWith("mediaProcessorFailed(message)"))
-    fun ffmpegFailed(message: String) = mediaProcessorFailed(message)
 }

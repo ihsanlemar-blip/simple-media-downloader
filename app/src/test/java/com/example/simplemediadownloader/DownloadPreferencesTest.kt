@@ -86,7 +86,7 @@ class DownloadPreferencesTest {
                 fallback,
             ),
         )
-        org.junit.Assert.assertTrue(separate1080.requiresFfmpeg)
+        org.junit.Assert.assertTrue(separate1080.requiresMuxing)
     }
 
     @Test

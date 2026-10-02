@@ -32,7 +32,7 @@ class DownloadOptionsTest {
     }
 
     @Test
-    fun `audio format maps its discovered bitrate to yt-dlp`() {
+    fun `audio format maps its discovered bitrate properly`() {
         val format = AvailableFormat(
             key = "audio:251",
             mode = DownloadMode.AUDIO_MP3,

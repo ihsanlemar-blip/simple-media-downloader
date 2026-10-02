@@ -42,17 +42,4 @@ class BackendInitializationStateTest {
         assertTrue(initialization.state.value.mediaProcessorReady)
         assertFalse(initialization.state.value.mediaProcessorInitializing)
     }
-
-    @Test
-    fun `legacy naming bridges maintain backward compatibility`() {
-        val initialization = BackendInitializationState()
-        assertTrue(initialization.beginYoutubeDlInitialization())
-        initialization.youtubeDlReady()
-        assertTrue(initialization.state.value.youtubeDlReady)
-
-        initialization.ffmpegInitializing()
-        assertTrue(initialization.state.value.ffmpegInitializing)
-        initialization.ffmpegReady()
-        assertTrue(initialization.state.value.ffmpegReady)
-    }
 }
