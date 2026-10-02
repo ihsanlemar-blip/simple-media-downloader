@@ -1206,29 +1206,27 @@ internal class TaskProgressAggregator(
     private var currentSpeed: Long? = null
 
     fun updateVideo(progress: DownloadProgress) {
-        val stateToEmit = synchronized(lock) {
+        synchronized(lock) {
             progress.downloadedBytes?.let {
                 videoBytesDownloaded = it.coerceAtLeast(videoBytesDownloaded)
             }
             if (progress.totalBytes != null && progress.totalBytes > 0) {
                 videoBytesTotal = progress.totalBytes
             }
-            computeState()
+            onState(computeState())
         }
-        onState(stateToEmit)
     }
 
     fun updateAudio(progress: DownloadProgress) {
-        val stateToEmit = synchronized(lock) {
+        synchronized(lock) {
             progress.downloadedBytes?.let {
                 audioBytesDownloaded = it.coerceAtLeast(audioBytesDownloaded)
             }
             if (progress.totalBytes != null && progress.totalBytes > 0) {
                 audioBytesTotal = progress.totalBytes
             }
-            computeState()
+            onState(computeState())
         }
-        onState(stateToEmit)
     }
 
     private fun computeState(): DownloadState.Downloading {

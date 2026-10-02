@@ -26,7 +26,21 @@ class DownloadRepository(
         records.map(DownloadRecord::toTask)
     }
     val recentHistory: Flow<List<DownloadTask>> = historyStore.recentHistory.map { records ->
-        records.map(DownloadRecord::toTask)
+        val tasks = ArrayList<DownloadTask>(records.size)
+        for (record in records) {
+            val output = record.output
+            val validated = if (
+                record.status == DownloadTaskStatus.COMPLETED &&
+                output != null &&
+                !storageExporter.outputExists(output)
+            ) {
+                record.copy(output = null)
+            } else {
+                record
+            }
+            tasks += validated.toTask()
+        }
+        tasks
     }
     val tasks: Flow<List<DownloadTask>> = combine(activeTasks, recentHistory) { active, history ->
         active + history
