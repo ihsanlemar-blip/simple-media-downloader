@@ -25,6 +25,14 @@ class BatchPolicyTest {
         assertEquals(480, refreshed.format.height); assertTrue(refreshed.format.requiresDownscale)
         assertTrue(selectBestVideoFormat(largerOnly, 480) is VideoMatchResult.OnlyHigherResolutionsExist)
     }
+    @Test fun `native audio source is independent of the MP3 bitrate choice`() {
+        val best = AvailableFormat("native-best", DownloadMode.AUDIO_ORIGINAL, "https://example.com/best", extension = "m4a", bitrateKbps = 320)
+        val lower = best.copy(key = "native-small", bitrateKbps = 128)
+        val catalog = MediaFormatCatalog("url", "title", emptyList(), listOf(best, lower))
+        assertEquals(best, BatchFormatChoice(DownloadMode.AUDIO_ORIGINAL, mp3BitrateKbps = 128).select(catalog))
+        assertFalse(BatchFormatChoice(DownloadMode.AUDIO_ORIGINAL).select(catalog)!!.requiresAudioTranscode)
+    }
+
     @Test fun `audio policy and estimates remain truthful`() {
         assertEquals(DownloadMode.AUDIO_MP3, BatchFormatChoice.audioDefault("YouTube").mode)
         assertEquals(192, BatchFormatChoice.audioDefault("YouTube").mp3BitrateKbps)

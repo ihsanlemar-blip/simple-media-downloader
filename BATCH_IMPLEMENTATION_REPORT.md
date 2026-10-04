@@ -97,8 +97,8 @@ metadata, native source, ABI, or workflow matrix changes.
 
 ## Local validation results
 
-- `:app:testDebugUnitTest`: PASS, 234 tests, zero failures/errors/skips. Fifteen
-  tests were added (ten repository/lifecycle, three policy, one migration, one export-marker regression).
+- `:app:testDebugUnitTest`: PASS, 235 tests, zero failures/errors/skips. Sixteen
+  tests were added (ten repository/lifecycle, four policy, one migration, one export-marker regression).
 - `:app:lintDebug`: PASS, zero errors, 52 warnings.
 - `:app:lintRelease`: PASS, zero errors, 52 warnings.
 - `:app:assembleDebug`: PASS.
@@ -128,3 +128,6 @@ through the legacy fallback. The correction supplies the engine marker and adds 
 exact-timestamp regression test. Production file selection, source validation and
 MP3 validation are unchanged. Final workflow results are verified for the corrected
 commit and linked in the final response.
+
+Native batch source selection is independent of the MP3 bitrate preference; a regression
+test preserves the catalog's preferred native source when MP3 is set to 128 kbps.

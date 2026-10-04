@@ -52,7 +52,7 @@ data class BatchFormatChoice(val mode: DownloadMode, val maximumHeight: Int = 0,
                         width = if (source.height > 0) ((source.width.toLong() * maximumHeight / source.height).toInt() / 2) * 2 else 0,
                         sourceHeight = source.height, requiresDownscale = true)
                 }
-        else -> selectBestAudioFormat(catalog, mode, mp3BitrateKbps)
+        else -> selectBestAudioFormat(catalog, mode, if (mode == DownloadMode.AUDIO_MP3) mp3BitrateKbps else 0)
     }
     companion object {
         fun audioDefault(platform: String, youtubeBitrate: Int = 192) = BatchFormatChoice(PlatformAudioPolicy.defaultAudioMode(platform), mp3BitrateKbps = youtubeBitrate)
