@@ -4,6 +4,12 @@ import java.net.URI
 import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
@@ -24,6 +30,10 @@ data class ProfileAddress(val platform: String, val handle: String, val url: Str
             val uri = runCatching { URI(url) }.getOrNull() ?: return null
             val host = uri.host?.lowercase(Locale.ROOT)?.removePrefix("www.")?.removePrefix("m.") ?: return null
             val parts = uri.path.orEmpty().trim('/').split('/').filter(String::isNotBlank)
+            val query = runCatching { uri.rawQuery.orEmpty().split('&').map { parameter ->
+                val pair = parameter.split('=', limit = 2)
+                java.net.URLDecoder.decode(pair[0], "UTF-8") to java.net.URLDecoder.decode(pair.getOrElse(1) { "" }, "UTF-8")
+            } }.getOrNull() ?: return null
             val reserved = setOf("watch", "reel", "reels", "p", "tv", "share", "stories", "explore", "accounts", "about", "help", "legal", "login", "logout", "settings", "direct", "home", "search", "i", "intent", "messages", "notifications", "compose", "hashtag", "photo.php", "story.php", "permalink.php", "groups", "marketplace", "gaming", "events", "business", "pages", "people", "home.php", "index.php", "login.php", "notifications.php", "photo", "photos", "video", "videos", "albums", "saved", "friends", "bookmarks.php")
             val name = parts.singleOrNull()
             return when {
@@ -31,9 +41,9 @@ data class ProfileAddress(val platform: String, val handle: String, val url: Str
                 host == "instagram.com" && name?.matches(Regex("[A-Za-z0-9._]{1,30}")) == true && name.lowercase(Locale.ROOT) !in reserved && name.any(Char::isLetterOrDigit) -> ProfileAddress("Instagram", name, "https://www.instagram.com/$name/")
                 host in setOf("twitter.com", "x.com") && name?.matches(Regex("[A-Za-z0-9_]{1,15}")) == true && name.lowercase(Locale.ROOT) !in reserved -> ProfileAddress("X/Twitter", name, "https://x.com/$name")
                 host == "reddit.com" && parts.size in 2..3 && parts[0] in setOf("user", "u") && parts[1].matches(Regex("[A-Za-z0-9_-]{3,20}")) && (parts.size == 2 || parts[2] in setOf("submitted", "overview")) -> ProfileAddress("Reddit", parts[1], "https://www.reddit.com/user/${parts[1]}/")
-                host == "facebook.com" && uri.rawQuery.orEmpty().split('&').none { it.startsWith("story_fbid=") || it.startsWith("v=") } -> {
+                host == "facebook.com" && query.none { it.first in setOf("story_fbid", "v") } -> {
                     val id = when {
-                        name == "profile.php" -> uri.rawQuery.orEmpty().split('&').singleOrNull { it.startsWith("id=") }?.substringAfter('=')?.takeIf { it.matches(Regex("[0-9]{1,30}")) }
+                        name == "profile.php" -> query.singleOrNull { it.first == "id" }?.second?.takeIf { it.matches(Regex("[0-9]{1,30}")) }
                         parts.size == 3 && parts[0] in setOf("people", "pages") && parts[2].matches(Regex("[0-9]{1,30}")) -> parts[2]
                         name?.matches(Regex("[A-Za-z0-9.\u002d]{1,100}")) == true && name.lowercase(Locale.ROOT) !in reserved -> name
                         else -> null
@@ -52,7 +62,7 @@ internal fun profileError(error: Exception): String = (error as? ProfileDiscover
 internal data class ProfileResponse(val status: Int, val body: String, val retryAfterSeconds: Long? = null)
 internal fun interface ProfileTransport { suspend fun get(url: String, headers: Map<String, String>): ProfileResponse }
 
-/** Public first-party metadata only. No gateway endpoints, user authentication, or stream extraction. */
+/** Bounded metadata requests with an explicit host allowlist and an isolated cookie jar. */
 internal class ProfileHttpClient(
     client: OkHttpClient,
     private val hosts: Set<String>,
@@ -71,11 +81,17 @@ internal class ProfileHttpClient(
             if (uri.scheme != "https" || uri.host !in hosts || !NetworkSecurityPolicy.isAllowedShareUrl(value)) throw ProfileDiscoveryException("Unsupported profile link.")
         }
         repeat(3) { attempt ->
+            currentCoroutineContext().ensureActive()
             validate(target)
             val response = try {
-                if (transport != null) transport.get(target, headers) else runInterruptible(dispatchers.io) {
+                if (transport != null) transport.get(target, headers) else coroutineScope {
                     val request = Request.Builder().url(target).header("User-Agent", USER_AGENT).header("Accept", "application/json,text/html").apply { headers.forEach { (name, value) -> header(name, value) } }.build()
-                    publicClient.newCall(request).execute().use { r ->
+                    val call = publicClient.newCall(request)
+                    // Coroutine interruption alone does not reliably close a blocked socket read.
+                    val cancellation = launch(start = CoroutineStart.UNDISPATCHED) {
+                        try { awaitCancellation() } finally { call.cancel() }
+                    }
+                    try { runInterruptible(dispatchers.io) { call.execute().use { r ->
                         if (r.isRedirect) {
                             val next = r.header("Location")?.let { r.request.url.resolve(it)?.toString() } ?: throw ProfileDiscoveryException("Could not load more posts.")
                             validate(next)
@@ -83,11 +99,12 @@ internal class ProfileHttpClient(
                             target = next
                             ProfileResponse(503, "") // A bounded, delayed retry follows only a first-party redirect.
                         } else ProfileResponse(r.code, r.body?.readBoundedString().orEmpty(), r.header("Retry-After")?.toLongOrNull())
-                    }
+                    } } } finally { cancellation.cancel() }
                 }
             } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
             catch (error: ProfileDiscoveryException) { throw error }
             catch (_: IOException) {
+                currentCoroutineContext().ensureActive() // A cancelled socket must never enter the retry loop.
                 if (attempt == 2) throw ProfileDiscoveryException("Could not load more posts. Check your connection and try again.")
                 wait((1_000L shl attempt) + jitter()); return@repeat
             }

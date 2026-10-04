@@ -310,7 +310,7 @@ history; individual cancel/retry/open/share/delete actions remain in Transfers/V
 Batch work uses the user's existing network concurrency setting (it never increases
 it), one collection discovery operation, and the existing single MP3 conversion slot.
 
-### Social profile latest-N rollout
+### Public social profile batches
 
 Profile links open a count chooser before any crawling: Latest 10/20/50/100 or a
 validated custom value from 1 to 100. The default is 20. Social profile batches
@@ -346,3 +346,8 @@ single-post extractor. API access restrictions are reported without bypassing th
 All adapters use at most three attempts with exponential backoff, small jitter and
 a capped Retry-After delay. Private/sign-in-required responses stop immediately.
 Public endpoint contracts can change; reaching the requested N is not guaranteed.
+
+Stopping discovery cancels the active HTTP call and retains only committed pages.
+Preview selection, continuation, dates and normal child tasks survive a database
+restart. Created children resume through existing interruption/recovery logic
+without re-crawling the profile.

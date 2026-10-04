@@ -3,6 +3,7 @@ package com.example.simplemediadownloader
 import android.app.Application
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import org.junit.Assert.*
 import org.junit.Test
@@ -21,6 +22,15 @@ class ProfileDiscoveryTest {
         listOf("https://tiktok.com/@teacher/video/123", "https://instagram.com/reel/abc", "https://facebook.com/teacher/posts/123", "https://facebook.com/story.php?story_fbid=123&id=456", "https://x.com/teacher/status/123", "https://reddit.com/user/teacher/comments/abc/title", "https://instagram.com/accounts/login", "https://x.com/settings", "https://facebook.com/groups", "https://facebook.com/watch?v=123").forEach { assertEquals(it, SourceUrlType.SINGLE_MEDIA, SourceUrlClassifier.classify(it)) }
         assertNull(ProfileAddress.parse("https://127.0.0.1/@teacher"))
         assertNull(ProfileAddress.parse("https://tiktok.com.evil.test/@teacher"))
+    }
+    @Test fun `shared and pasted profiles use common classification and encoded post contexts stay single`() {
+        val profile = "https://facebook.com/profile.php?%69d=123"
+        val pasted = ShareIntentParser.parseText("Creator: $profile") as SharedUrlResult.Valid
+        val shared = ShareIntentParser.parse(android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, profile)) as SharedUrlResult.Valid
+        assertEquals(SourceUrlType.SOCIAL_PROFILE, SourceUrlClassifier.classify(pasted.url))
+        assertEquals(SourceUrlType.SOCIAL_PROFILE, SourceUrlClassifier.classify(shared.url))
+        assertEquals(SourceUrlType.SINGLE_MEDIA, SourceUrlClassifier.classify("https://facebook.com/profile.php?id=123&%73tory_fbid=456"))
+        assertEquals(SourceUrlType.SINGLE_MEDIA, SourceUrlClassifier.classify("https://facebook.com/teacher?%76=456"))
     }
     @Test fun `count default presets and hard bounds are explicit`() {
         assertEquals(20, ProfileDiscoveryPolicy.DEFAULT_COUNT)
@@ -52,6 +62,30 @@ class ProfileDiscoveryTest {
         assertEquals(3, calls)
         val cancelled = ProfileHttpClient(OkHttpClient(), hosts, transport = ProfileTransport { _, _ -> throw CancellationException() }, wait = { fail("Cancellation retried") })
         try { cancelled.get("https://www.tiktok.com/@teacher"); fail() } catch (_: CancellationException) {}
+    }
+    @Test fun `cancelling discovery cancels its active OkHttp call without retries`() = runBlocking {
+        val entered = kotlinx.coroutines.CompletableDeferred<okhttp3.Call>()
+        val released = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var requests = 0
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            requests++; entered.complete(chain.call())
+            try {
+                while (!chain.call().isCanceled()) {
+                    try { Thread.sleep(10) } catch (_: InterruptedException) { /* A socket need not react to interruption. */ }
+                }
+                throw IOException("Cancelled")
+            } finally { released.complete(Unit) }
+        }.build()
+        val http = ProfileHttpClient(client, hosts, wait = { fail("Cancellation retried") })
+        var activeCall: okhttp3.Call? = null
+        val job = launch { http.get("https://www.tiktok.com/@teacher") }
+        try {
+            val call = kotlinx.coroutines.withTimeout(5_000) { entered.await() }
+            activeCall = call
+            job.cancel()
+            kotlinx.coroutines.withTimeout(5_000) { job.join(); released.await() }
+            assertTrue(call.isCanceled()); assertEquals(1, requests)
+        } finally { activeCall?.cancel(); job.cancel(); job.join(); client.dispatcher.executorService.shutdown() }
     }
     @Test fun `TikTok returns canonical posts dates duration continuation and no streams`() = runBlocking {
         val extractor = TikTokProfileExtractor(ProfileHttpClient(OkHttpClient(), hosts, transport = ProfileTransport { url, _ -> ProfileResponse(200, fixture(if (url.contains("/api/")) "tiktok-next.json" else "tiktok.html")) }, wait = {}))
