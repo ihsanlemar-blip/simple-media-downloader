@@ -13,8 +13,6 @@ import org.schabi.newpipe.extractor.Image
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.schabi.newpipe.extractor.stream.StreamType
 import org.schabi.newpipe.extractor.stream.ContentAvailability
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
@@ -88,20 +86,23 @@ class YouTubePlaylistExtractorAdapterTest {
     }
 
     @Test fun `cancellation interrupts blocking NewPipe work`() = runBlocking {
-        val entered = CountDownLatch(1)
-        val released = CountDownLatch(1)
+        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val released = kotlinx.coroutines.CompletableDeferred<Unit>()
         val extractor = YouTubePlaylistExtractorAdapter(AppDispatchers(), object : PlaylistSource {
             override fun initial(url: String): PlaylistSourcePage {
-                entered.countDown()
-                try { Thread.sleep(30_000) } finally { released.countDown() }
+                entered.complete(Unit)
+                try { Thread.sleep(30_000) } finally { released.complete(Unit) }
                 return PlaylistSourcePage(emptyList(), null)
             }
             override fun more(url: String, page: Page) = error("Unused")
         })
-        val job = launch(Dispatchers.Default) { extractor.getInfo(url) }
-        assertTrue(entered.await(5, TimeUnit.SECONDS))
-        withTimeout(5_000) { job.cancelAndJoin() }
-        assertTrue(released.await(1, TimeUnit.SECONDS)); assertTrue(job.isCancelled)
+        val job = launch { extractor.getInfo(url) }
+        try {
+            // Suspend instead of blocking the test thread while its child is being scheduled.
+            withTimeout(10_000) { entered.await() }
+            withTimeout(5_000) { job.cancelAndJoin(); released.await() }
+            assertTrue(job.isCancelled)
+        } finally { job.cancelAndJoin() }
     }
 
     @Test fun `typed pasted and shared playlist contexts use the same classification`() {

@@ -277,11 +277,11 @@ removed, paid, members-only, upcoming and invalid-URL entries are shown with a s
 reason and cannot be selected. Unknown availability is handled by the normal child
 extractor; an individual failure does not stop other children. Thumbnail requests
 use SafeDns, redirect validation and no cookies. Typed,
-pasted and shared profile links use the same classifier and collection entry point,
-but social-profile discovery adapters are not yet supplied. These links show an
-explicit unsupported-collection message; an individual media URL remains usable.
+pasted and shared profile links use the same classifier and collection entry point.
+Public profile discovery is described below; individual media URLs continue to use
+their existing single-item extractors.
 `CollectionExtractor` and `CollectionExtractorRegistry` provide the extension point
-for future profile and other collection adapters, without adding download engines.
+for profile and other collection adapters, without adding download engines.
 
 Room schema 7 adds durable batch parents, paged discovery items, selection and
 continuation cursors, and optional batch identity/order/source-item fields on normal
@@ -319,7 +319,7 @@ conversion engine as individual downloads. Discovery is serialized, paged, dedup
 by post ID, cancellable and persisted in Room schema 9, including dates/page cursors.
 Known dates retain newest-first order; unknown dates retain the public feed order.
 
-TikTok, Instagram, Facebook and X/Twitter adapters are available; Reddit is being added independently.
+TikTok, Instagram, Facebook, X/Twitter and Reddit have independent profile adapters.
 TikTok reads public profile metadata and the public recent-post endpoint. If direct
 access is limited, its existing third-party gateway opt-in can permit TikWM fallback
 for a profile verified public. The chooser discloses this: username, count and cursor
@@ -339,3 +339,10 @@ photo-only/promoted/other-author entries and returns canonical status URLs. Only
 exposed next-page URLs are followed. The feed may be empty or shorter than requested.
 Discovery sends the username to Twitter, not a third party. Individual X downloads
 still require the existing FxTwitter/Fixupx opt-in, which discovery never enables.
+
+Reddit uses paginated public submissions sorted newest first, returns canonical
+individual post URLs and filters for Reddit-hosted videos supported by the existing
+single-post extractor. API access restrictions are reported without bypassing them.
+All adapters use at most three attempts with exponential backoff, small jitter and
+a capped Retry-After delay. Private/sign-in-required responses stop immediately.
+Public endpoint contracts can change; reaching the requested N is not guaranteed.

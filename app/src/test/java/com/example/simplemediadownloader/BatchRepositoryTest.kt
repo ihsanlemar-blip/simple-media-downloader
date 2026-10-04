@@ -35,7 +35,7 @@ class BatchRepositoryTest {
     private val discovery = object : FormatDiscoveryEngine {
         override fun quickFormatCatalog(url: String) = AudioFormatOptions.augment(MediaFormatCatalog(url, "Lesson", listOf(video), listOf(native), durationSeconds = 300))
         override fun fastVideoPreset() = video.copy(isQuickPreset = true, formatId = "quick-best")
-        override suspend fun discoverFormats(url: String): FormatDiscoveryResult = if (failingChild && url.endsWith("lesson1")) FormatDiscoveryResult.Failure("Private video") else FormatDiscoveryResult.Success(quickFormatCatalog(url))
+        override suspend fun discoverFormats(url: String): FormatDiscoveryResult = if (failingChild && (url.endsWith("lesson1") || url.endsWith("/video/2"))) FormatDiscoveryResult.Failure("Private video") else FormatDiscoveryResult.Success(quickFormatCatalog(url))
     }
     private val extractor = object : CollectionExtractor {
         override suspend fun canHandle(url: String) = true
@@ -315,6 +315,82 @@ class BatchRepositoryTest {
         assertEquals(256, child.format.targetAudioBitrateKbps); assertEquals("mp3", child.format.outputExtension)
         downloads.download(child)
         assertEquals(BatchStatus.COMPLETED, manager.observe(id).first()!!.status)
+    }
+
+    @Test fun `every latest N preset stops before requesting extra posts and selection survives restart`() = runBlocking {
+        val profile = "https://www.tiktok.com/@teacher"
+        val source = object : CollectionExtractor {
+            override suspend fun canHandle(url: String) = true
+            override suspend fun getInfo(url: String) = CollectionInfo(url, "TikTok", CollectionType.SOCIAL_PROFILE, "Teacher")
+            override suspend fun getItems(url: String, limit: Int?, continuation: String?): CollectionPage {
+                val start = continuation?.toInt() ?: 0
+                val end = start + minOf(requireNotNull(limit), 7)
+                return CollectionPage((start until end).map { index ->
+                    CollectionItem("$index", "https://www.tiktok.com/@teacher/video/$index", "Lesson", null, null, 300, index, publishedAtSeconds = 10_000L - index)
+                }, "$end", true)
+            }
+        }
+        fun manager() = BatchRepository(db, downloads, CollectionExtractorRegistry(listOf(source)))
+        for (count in ProfileDiscoveryPolicy.PRESETS) {
+            val manager = manager()
+            val id = manager.create(profile, count); manager.discoverRemaining(id)
+            assertEquals(count, db.batchDao().get(id)!!.discoveredCount); assertFalse(db.batchDao().get(id)!!.hasMore)
+            manager.select(id, null, true); manager.select(id, "0", false)
+            val restored = manager()
+            assertEquals(count - 1, restored.observe(id).first()!!.parent.selectedCount)
+            assertFalse(restored.items(id).first().first().selected)
+            assertEquals((0 until count).toList(), db.batchDao().items(id, 100).map { it.position })
+            manager.select(id, null, false); assertEquals(0, restored.observe(id).first()!!.parent.selectedCount)
+        }
+        assertTrue(downloads.queuedRequests().isEmpty())
+    }
+
+    @Test fun `profile cancellation retains only committed page and resumes without recrawling it`() = runBlocking {
+        val profile = "https://www.tiktok.com/@teacher"
+        val started = CompletableDeferred<Unit>(); var firstCalls = 0; var blocking = true
+        val source = object : CollectionExtractor {
+            override suspend fun canHandle(url: String) = true
+            override suspend fun getInfo(url: String) = CollectionInfo(url, "TikTok", CollectionType.SOCIAL_PROFILE, "Teacher")
+            override suspend fun getItems(url: String, limit: Int?, continuation: String?): CollectionPage {
+                if (continuation == null) firstCalls++ else if (blocking) { started.complete(Unit); awaitCancellation() }
+                val ids = if (continuation == null) listOf(1, 2) else listOf(3)
+                return CollectionPage(ids.map { CollectionItem("$it", "https://www.tiktok.com/@teacher/video/$it", "Lesson", null, null, 300, it - 1) }, if (continuation == null) "page2" else null, continuation == null)
+            }
+        }
+        fun manager() = BatchRepository(db, downloads, CollectionExtractorRegistry(listOf(source)))
+        val manager = manager(); val id = manager.create(profile, 20); manager.discoverNext(id); manager.select(id, "1", true)
+        val job = launch { manager.discoverRemaining(id) }; started.await(); job.cancelAndJoin()
+        val durable = db.batchDao().get(id)!!
+        assertEquals(2, durable.discoveredCount); assertEquals(1, durable.discoveryPage); assertEquals("page2", durable.continuation)
+        assertEquals("READY", durable.status); assertEquals(1, durable.selectedCount)
+        blocking = false; manager().discoverRemaining(id)
+        assertEquals(3, db.batchDao().get(id)!!.discoveredCount); assertEquals(1, firstCalls)
+        assertTrue(downloads.queuedRequests().isEmpty())
+    }
+
+    @Test fun `profile child failure isolation retry and completed duplicate skip use normal repository`() = runBlocking {
+        val profile = "https://www.tiktok.com/@teacher"
+        val source = object : CollectionExtractor {
+            override suspend fun canHandle(url: String) = true
+            override suspend fun getInfo(url: String) = CollectionInfo(url, "TikTok", CollectionType.SOCIAL_PROFILE, "Teacher")
+            override suspend fun getItems(url: String, limit: Int?, continuation: String?) = CollectionPage((1..3).map {
+                CollectionItem("$it", "https://www.tiktok.com/@teacher/video/$it", "Lesson", null, null, 300, it - 1)
+            }, null, false)
+        }
+        val manager = BatchRepository(db, downloads, CollectionExtractorRegistry(listOf(source)))
+        failingChild = true
+        val id = manager.create(profile, 20); manager.discoverRemaining(id); manager.select(id, null, true); manager.enqueue(id)
+        assertEquals(listOf("QUEUED", "FAILED", "QUEUED"), db.batchDao().children(id).map { it.status })
+        downloads.restoreRecoverableTasks().forEach { downloads.download(it) }
+        assertEquals(BatchStatus.COMPLETED_WITH_ERRORS, manager.observe(id).first()!!.status)
+        failingChild = false; manager.retryFailed(id)
+        assertEquals(1, downloads.queuedRequests().size)
+        downloads.queuedRequests().forEach { downloads.download(it) }
+        assertEquals(BatchStatus.COMPLETED, manager.observe(id).first()!!.status)
+        val second = manager.create(profile, 20); manager.discoverRemaining(second); manager.select(second, null, true)
+        assertEquals(3, manager.estimate(second).alreadyDownloaded); manager.enqueue(second)
+        assertTrue(db.batchDao().children(second).isEmpty()); assertTrue(downloads.queuedRequests().isEmpty())
+        manager.cancel(id); assertEquals(3, manager.observe(id).first()!!.progress.completed)
     }
 
 }

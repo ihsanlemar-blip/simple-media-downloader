@@ -1,0 +1,70 @@
+{
+  "kind": "Listing",
+  "data": {
+    "children": [
+      {
+        "kind": "t3",
+        "data": {
+          "id": "b",
+          "author": "teacher",
+          "title": "Lesson b",
+          "permalink": "/r/learning/comments/b/lesson/",
+          "thumbnail": "https://cdn.example.test/thumb.jpg",
+          "created_utc": 200,
+          "secure_media": {
+            "reddit_video": {
+              "fallback_url": "https://v.redd.it/b/DASH_720.mp4",
+              "duration": 30
+            }
+          }
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "a",
+          "author": "teacher",
+          "title": "Lesson a",
+          "permalink": "/r/learning/comments/a/lesson/",
+          "thumbnail": "https://cdn.example.test/thumb.jpg",
+          "created_utc": 300,
+          "secure_media": {
+            "reddit_video": {
+              "fallback_url": "https://v.redd.it/a/DASH_720.mp4",
+              "duration": 30
+            }
+          }
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "photo",
+          "author": "teacher",
+          "title": "Lesson photo",
+          "permalink": "/r/learning/comments/photo/lesson/",
+          "thumbnail": "https://cdn.example.test/thumb.jpg",
+          "created_utc": 400
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "other",
+          "author": "other",
+          "title": "Lesson other",
+          "permalink": "/r/learning/comments/other/lesson/",
+          "thumbnail": "https://cdn.example.test/thumb.jpg",
+          "created_utc": 500,
+          "secure_media": {
+            "reddit_video": {
+              "fallback_url": "https://v.redd.it/other/DASH_720.mp4",
+              "duration": 30
+            }
+          }
+        }
+      }
+    ],
+    "after": "t3_b"
+  }
+}
