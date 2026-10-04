@@ -88,7 +88,7 @@ child tasks. Completed media is inspected among the latest 20 matching records.
 Added: `BatchModels.kt`, `BatchPersistence.kt`, `CollectionDiscovery.kt`,
 `BatchRepository.kt`, `BatchViewModel.kt`, `BatchActivity.kt`, Room schema `7.json`,
 `BatchRepositoryTest.kt`, `BatchPolicyTest.kt`, `WorkingFileLocatorTest.kt`,
-`BatchDeviceTest.kt`, and this report.
+`BatchDeviceTest.kt`, `CollectionShareRoutingDeviceTest.kt`, and this report.
 Updated: Room database/migrations/task DAO/entity/history store, normal request/task/
 record models, repository admission/recovery/cancellation, foreground service controls,
 MediaStore filename prefix, application wiring, main/share routing, migration tests,
@@ -131,3 +131,8 @@ commit and linked in the final response.
 
 Native batch source selection is independent of the MP3 bitrate preference; a regression
 test preserves the catalog's preferred native source when MP3 is set to 128 kbps.
+
+Collection shares launch the batch screen in the normal app task before removing
+its isolated share-dialog task. A device regression uses an unsupported profile
+(discovery fails locally without network calls) to verify the preview survives
+`finishAndRemoveTask`; single-media share behavior is unchanged.

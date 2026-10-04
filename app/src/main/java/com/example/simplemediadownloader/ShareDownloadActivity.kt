@@ -67,7 +67,9 @@ class ShareDownloadActivity : ComponentActivity() {
         configureDialogWindow()
         val parsed = ShareIntentParser.parse(intent)
         if (parsed is SharedUrlResult.Valid && SourceUrlClassifier.classify(parsed.url) in setOf(SourceUrlType.YOUTUBE_PLAYLIST, SourceUrlType.SOCIAL_PROFILE)) {
-            startActivity(android.content.Intent(this, BatchActivity::class.java).putExtra(BatchActivity.EXTRA_SOURCE_URL, parsed.url))
+            startActivity(android.content.Intent(this, BatchActivity::class.java)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                .putExtra(BatchActivity.EXTRA_SOURCE_URL, parsed.url))
             finishAndRemoveTask()
             return
         }
