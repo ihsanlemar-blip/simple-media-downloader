@@ -319,9 +319,13 @@ conversion engine as individual downloads. Discovery is serialized, paged, dedup
 by post ID, cancellable and persisted in Room schema 9, including dates/page cursors.
 Known dates retain newest-first order; unknown dates retain the public feed order.
 
-The first adapter is TikTok; the remaining social adapters are being added independently.
+TikTok and Instagram adapters are available; the remaining social adapters are being added independently.
 TikTok reads public profile metadata and the public recent-post endpoint. If direct
 access is limited, its existing third-party gateway opt-in can permit TikWM fallback
 for a profile verified public. The chooser discloses this: username, count and cursor
 are sent, never origin cookies. Private profiles never use that fallback. Normal
 single-post extraction and its existing gateway policy remain unchanged.
+
+Instagram uses its public web profile/timeline metadata endpoints, skips photo-only
+posts, and returns canonical post URLs. Private profiles and sign-in requirements
+produce a safe error; no gateway or user cookies are used for profile discovery.

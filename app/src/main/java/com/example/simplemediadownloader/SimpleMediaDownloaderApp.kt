@@ -62,7 +62,7 @@ class SimpleMediaDownloaderApp : Application() {
             storageExporter = exporter,
         )
         batchRepository = BatchRepository(downloadDatabase, downloadRepository,
-            CollectionExtractorRegistry(listOf(YouTubePlaylistExtractorAdapter(dispatchers), TikTokProfileExtractor(okHttpClient, dispatchers) { downloadPreferenceStore.allowThirdPartyGateways.value })),
+            CollectionExtractorRegistry(listOf(YouTubePlaylistExtractorAdapter(dispatchers), TikTokProfileExtractor(okHttpClient, dispatchers) { downloadPreferenceStore.allowThirdPartyGateways.value }, InstagramProfileExtractor(okHttpClient, dispatchers))),
             availableBytes = { runCatching { android.os.StatFs(cacheDir.absolutePath).availableBytes }.getOrNull() })
         DownloadNotifier.createChannel(this)
     }

@@ -1,0 +1,75 @@
+{
+  "data": {
+    "user": {
+      "id": "123",
+      "username": "teacher",
+      "full_name": "Teacher",
+      "is_private": false,
+      "edge_owner_to_timeline_media": {
+        "edges": [
+          {
+            "node": {
+              "id": "2",
+              "shortcode": "second",
+              "is_video": true,
+              "video_duration": 30,
+              "taken_at_timestamp": 200,
+              "thumbnail_src": "https://cdn.example.test/thumb.jpg",
+              "edge_media_to_caption": {
+                "edges": [
+                  {
+                    "node": {
+                      "text": "Lesson 2"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "node": {
+              "id": "9",
+              "shortcode": "photo",
+              "is_video": false,
+              "video_duration": 30,
+              "taken_at_timestamp": 400,
+              "thumbnail_src": "https://cdn.example.test/thumb.jpg",
+              "edge_media_to_caption": {
+                "edges": [
+                  {
+                    "node": {
+                      "text": "Lesson 9"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "node": {
+              "id": "1",
+              "shortcode": "first",
+              "is_video": true,
+              "video_duration": 30,
+              "taken_at_timestamp": 300,
+              "thumbnail_src": "https://cdn.example.test/thumb.jpg",
+              "edge_media_to_caption": {
+                "edges": [
+                  {
+                    "node": {
+                      "text": "Lesson 1"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "page_info": {
+          "has_next_page": true,
+          "end_cursor": "after-first"
+        }
+      }
+    }
+  }
+}
