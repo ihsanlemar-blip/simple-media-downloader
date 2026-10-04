@@ -93,3 +93,11 @@ Pause retains the existing restart behavior, rather than byte-level resume.
 - `:app:bundleRelease`: PASS.
 - `:app:assembleDebugAndroidTest`: PASS; emulator execution is verified on GitHub.
 - Native packaging/source provenance verification: PASS, all four intended ABIs in APKs/AAB.
+
+## Device test selector correction
+
+The first emulator run passed the shared-playlist and analysis-stop tests, but the
+two new Gateway routing tests looked for an unused “Choose Quality” label. The
+existing button is “Formats”. The tests now use `R.string.action_explore_formats`,
+preserving the real typed/pasted input and preview assertions. Final CI results
+are checked for the corrected commit; production routing was unchanged.

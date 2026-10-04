@@ -92,7 +92,7 @@ class YouTubePlaylistRoutingDeviceTest {
     @Test fun typedPlaylistUsesGatewayClassificationAndPreview() {
         scenario = ActivityScenario.launch(MainActivity::class.java)
         compose.onNode(hasSetTextAction()).performTextReplacement(source)
-        compose.onNodeWithText("Choose Quality").performScrollTo().performClick()
+        compose.onNodeWithText(app.getString(R.string.action_explore_formats)).performScrollTo().performClick()
         preview()
     }
 
@@ -102,7 +102,7 @@ class YouTubePlaylistRoutingDeviceTest {
             app.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Playlist", source))
         }
         compose.onNodeWithContentDescription("Paste from clipboard").performClick()
-        compose.onNodeWithText("Choose Quality").performScrollTo().performClick()
+        compose.onNodeWithText(app.getString(R.string.action_explore_formats)).performScrollTo().performClick()
         preview()
     }
 }
