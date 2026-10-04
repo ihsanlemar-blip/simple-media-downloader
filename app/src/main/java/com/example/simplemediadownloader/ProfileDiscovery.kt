@@ -113,13 +113,13 @@ abstract class PagedProfileExtractor internal constructor(private val platform: 
     override suspend fun canHandle(url: String) = ProfileAddress.parse(url)?.platform == platform
     private fun address(url: String) = ProfileAddress.parse(url)?.takeIf { it.platform == platform } ?: throw ProfileDiscoveryException("Unsupported profile link.")
     private var cachedPage: Pair<Pair<String, String?>, ProfileSourcePage>? = null
-    override suspend fun getInfo(url: String): CollectionInfo {
+    override suspend fun getInfo(url: String): CollectionInfo = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val address = address(url)
         val page = load(address, null)
         cachedPage = (address.url to null) to page
-        return page.info
+        page.info
     }
-    override suspend fun getItems(url: String, limit: Int?, continuation: String?): CollectionPage {
+    override suspend fun getItems(url: String, limit: Int?, continuation: String?): CollectionPage = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val count = limit ?: ProfileDiscoveryPolicy.DEFAULT_COUNT
         ProfileDiscoveryPolicy.validate(count)
         if (continuation != null && continuation.length > 65_536) throw ProfileDiscoveryException("Could not load more posts.")
@@ -139,7 +139,7 @@ abstract class PagedProfileExtractor internal constructor(private val platform: 
             else -> null
         }?.toString()?.also { if (it.length > 65_536) throw ProfileDiscoveryException("Could not load more posts.") }
         if (offset + items.size >= sorted.size) cachedPage = null
-        return CollectionPage(items.mapIndexed { index, item -> item.copy(position = position + index) }, next, next != null, page.notice)
+        CollectionPage(items.mapIndexed { index, item -> item.copy(position = position + index) }, next, next != null, page.notice)
     }
 }
 internal fun JSONObject.text(key: String) = optString(key).takeIf { it.isNotBlank() && it != "null" }
