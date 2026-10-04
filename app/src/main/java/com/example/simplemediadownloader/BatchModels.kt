@@ -1,18 +1,35 @@
 package com.example.simplemediadownloader
 
 import java.net.URI
+import java.net.URLDecoder
 
 enum class SourceUrlType { SINGLE_MEDIA, YOUTUBE_PLAYLIST, SOCIAL_PROFILE, UNKNOWN }
 
 /** Classification is shared by typed, pasted, and ACTION_SEND links. No network requests. */
 object SourceUrlClassifier {
+    /** A valid list context takes precedence over watch?v= for all three input routes. */
+    fun playlistId(url: String): String? {
+        if (!NetworkSecurityPolicy.isAllowedShareUrl(url)) return null
+        val uri = runCatching { URI(url) }.getOrNull() ?: return null
+        val host = uri.host?.lowercase()?.removePrefix("www.")?.removePrefix("m.")
+        if (host !in setOf("youtube.com", "music.youtube.com", "youtu.be")) return null
+        if (host != "youtu.be" && uri.path !in setOf("/playlist", "/watch")) return null
+        val values = runCatching {
+            uri.rawQuery.orEmpty().split('&').mapNotNull { parameter ->
+                val pair = parameter.split('=', limit = 2)
+                if (pair.size == 2 && URLDecoder.decode(pair[0], "UTF-8") == "list") URLDecoder.decode(pair[1], "UTF-8") else null
+            }
+        }.getOrNull() ?: return null
+        return values.singleOrNull()?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,200}")) }
+    }
+    fun playlistUrl(url: String): String = "https://www.youtube.com/playlist?list=${requireNotNull(playlistId(url))}"
     fun classify(url: String): SourceUrlType {
         if (!NetworkSecurityPolicy.isAllowedShareUrl(url)) return SourceUrlType.UNKNOWN
         val uri = runCatching { URI(url) }.getOrNull() ?: return SourceUrlType.UNKNOWN
         val host = uri.host?.lowercase()?.removePrefix("www.")?.removePrefix("m.") ?: return SourceUrlType.UNKNOWN
         val path = uri.path.orEmpty().trim('/').split('/').filter(String::isNotBlank)
         if (host in setOf("youtube.com", "music.youtube.com", "youtu.be")) {
-            if (uri.rawQuery.orEmpty().split('&').any { it.startsWith("list=") && it.length > 5 }) return SourceUrlType.YOUTUBE_PLAYLIST
+            if (playlistId(url) != null) return SourceUrlType.YOUTUBE_PLAYLIST
             if (path.firstOrNull()?.let { it.startsWith('@') || it in setOf("channel", "c", "user") } == true) return SourceUrlType.SOCIAL_PROFILE
         }
         val profile = when (host) {
@@ -29,8 +46,8 @@ object SourceUrlClassifier {
 
 enum class CollectionType { YOUTUBE_PLAYLIST, SOCIAL_PROFILE, OTHER_COLLECTION }
 enum class BatchStatus { DISCOVERING, READY, QUEUED, RUNNING, PAUSED, COMPLETED, COMPLETED_WITH_ERRORS, CANCELLED, FAILED }
-data class CollectionInfo(val sourceUrl: String, val platform: String, val type: CollectionType, val title: String?, val itemCount: Int? = null)
-data class CollectionItem(val id: String, val url: String, val title: String?, val author: String?, val thumbnailUrl: String?, val durationSeconds: Long?, val position: Int)
+data class CollectionInfo(val sourceUrl: String, val platform: String, val type: CollectionType, val title: String?, val itemCount: Int? = null, val author: String? = null, val thumbnailUrl: String? = null)
+data class CollectionItem(val id: String, val url: String, val title: String?, val author: String?, val thumbnailUrl: String?, val durationSeconds: Long?, val position: Int, val unavailableReason: String? = null)
 data class CollectionPage(val items: List<CollectionItem>, val nextContinuation: String?, val hasMore: Boolean)
 interface CollectionExtractor {
     suspend fun canHandle(url: String): Boolean
@@ -78,3 +95,12 @@ data class BatchEstimate(val knownBytes: Long, val unknownItems: Int, val newIte
     val likelyInsufficient: Boolean get() = freeBytes != null && requiredBytes > freeBytes
     val label: String get() = "Estimated total: ~${formatByteCount(knownBytes)}" + if (unknownItems > 0) " + $unknownItems unknown items" else ""
 }
+
+/** Keeps numbering aligned even when only an early subset of a large playlist is selected. */
+fun playlistFilenamePrefix(position: Int, discoveredCount: Int, totalCount: Int?): String {
+    val width = maxOf(2, maxOf(discoveredCount, totalCount ?: 0, position + 1).toString().length)
+    return "${(position + 1).toString().padStart(width, '0')} - "
+}
+fun playlistDurationLabel(seconds: Long): String = if (seconds >= 3600)
+    "%d:%02d:%02d".format(java.util.Locale.US, seconds / 3600, seconds / 60 % 60, seconds % 60)
+else "%d:%02d".format(java.util.Locale.US, seconds / 60, seconds % 60)

@@ -23,6 +23,9 @@ data class BatchDownloadEntity(
     @ColumnInfo(name = "skip_existing") val skipExisting: Boolean = true,
     @ColumnInfo(name = "prefix_order") val prefixOrder: Boolean = false,
     val error: String? = null,
+    val author: String? = null,
+    @ColumnInfo(name = "thumbnail_url") val thumbnailUrl: String? = null,
+    @ColumnInfo(name = "total_item_count") val totalItemCount: Int? = null,
 ) { val formatChoice get() = BatchFormatChoice(DownloadMode.valueOf(downloadMode), maximumHeight, mp3BitrateKbps) }
 
 @Entity(tableName = "batch_items", primaryKeys = ["batch_id", "item_id"],
@@ -40,6 +43,7 @@ data class BatchItemEntity(
     val selected: Boolean = false,
     @ColumnInfo(name = "child_task_id") val childTaskId: String? = null,
     @ColumnInfo(name = "skip_reason") val skipReason: String? = null,
+    @ColumnInfo(name = "unavailable_reason") val unavailableReason: String? = null,
 )
 
 data class BatchChildCounts(val queued: Int, val running: Int, val completed: Int, val failed: Int, val cancelled: Int)
@@ -60,8 +64,8 @@ interface BatchDao {
         COALESCE(SUM(status IN ('FAILED', 'INTERRUPTED')), 0) AS failed,
         COALESCE(SUM(status = 'CANCELLED'), 0) AS cancelled FROM download_tasks WHERE batch_id = :id""")
     fun observeCounts(id: String): Flow<BatchChildCounts>
-    @Query("UPDATE batch_items SET selected = :selected WHERE batch_id = :id AND item_id = :itemId") suspend fun select(id: String, itemId: String, selected: Boolean)
-    @Query("UPDATE batch_items SET selected = :selected WHERE batch_id = :id") suspend fun selectAll(id: String, selected: Boolean)
+    @Query("UPDATE batch_items SET selected = :selected WHERE batch_id = :id AND item_id = :itemId AND unavailable_reason IS NULL") suspend fun select(id: String, itemId: String, selected: Boolean)
+    @Query("UPDATE batch_items SET selected = :selected WHERE batch_id = :id AND unavailable_reason IS NULL") suspend fun selectAll(id: String, selected: Boolean)
     @Query("UPDATE download_batches SET discovered_count = (SELECT COUNT(*) FROM batch_items WHERE batch_id = :id), selected_count = (SELECT COUNT(*) FROM batch_items WHERE batch_id = :id AND selected = 1) WHERE batch_id = :id") suspend fun updateCounts(id: String)
     @Query("UPDATE batch_items SET child_task_id = :childId, skip_reason = :reason WHERE batch_id = :id AND item_id = :itemId") suspend fun assignChild(id: String, itemId: String, childId: String?, reason: String?)
     @Query("UPDATE download_tasks SET batch_id = NULL, batch_index = NULL, source_item_id = NULL WHERE batch_id = :id") suspend fun detachChildren(id: String)

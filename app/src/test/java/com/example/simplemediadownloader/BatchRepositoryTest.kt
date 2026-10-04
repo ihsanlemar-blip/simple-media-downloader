@@ -6,6 +6,10 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
 import org.junit.*
 import org.junit.Assert.*
 import org.junit.runner.RunWith
@@ -24,20 +28,22 @@ class BatchRepositoryTest {
     private var exported = 0
     private var firstPageCalls = 0
     private var savedOutputAvailable = true
+    private var unavailableEntries = false
+    private var failingChild = false
     private val native = AvailableFormat("audio", DownloadMode.AUDIO_ORIGINAL, "https://example.com/audio.m4a", extension = "m4a", bitrateKbps = 128, estimatedSizeBytes = 5_000_000, durationSeconds = 300)
     private val video = AvailableFormat("video360", DownloadMode.VIDEO, "https://example.com/video.mp4", extension = "mp4", height = 360, estimatedSizeBytes = 20_000_000)
     private val discovery = object : FormatDiscoveryEngine {
         override fun quickFormatCatalog(url: String) = AudioFormatOptions.augment(MediaFormatCatalog(url, "Lesson", listOf(video), listOf(native), durationSeconds = 300))
         override fun fastVideoPreset() = video.copy(isQuickPreset = true, formatId = "quick-best")
-        override suspend fun discoverFormats(url: String): FormatDiscoveryResult = FormatDiscoveryResult.Success(quickFormatCatalog(url))
+        override suspend fun discoverFormats(url: String): FormatDiscoveryResult = if (failingChild && url.endsWith("lesson1")) FormatDiscoveryResult.Failure("Private video") else FormatDiscoveryResult.Success(quickFormatCatalog(url))
     }
     private val extractor = object : CollectionExtractor {
         override suspend fun canHandle(url: String) = true
-        override suspend fun getInfo(url: String) = CollectionInfo(url, "YouTube", CollectionType.YOUTUBE_PLAYLIST, "Course", 3)
+        override suspend fun getInfo(url: String) = CollectionInfo(url, "YouTube", CollectionType.YOUTUBE_PLAYLIST, "Course", 3, "Teacher", "https://i.ytimg.com/course.jpg")
         override suspend fun getItems(url: String, limit: Int?, continuation: String?): CollectionPage {
             if (continuation == null) firstPageCalls++
             val start = if (continuation == null) 0 else 2
-            val items = (start until (if (start == 0) 2 else 3)).map { index -> CollectionItem("lesson-$index", "https://www.youtube.com/watch?v=lesson$index", "Lesson $index", "Teacher", null, 300, index) }
+            val items = (start until (if (start == 0) 2 else 3)).map { index -> CollectionItem("lesson-$index", if (unavailableEntries && index == 2) "http://127.0.0.1/secret" else "https://www.youtube.com/watch?v=lesson$index", "Lesson $index", "Teacher", null, 300, index, if (unavailableEntries && index == 1) "Private video" else null) }
             return CollectionPage(items.take(limit ?: 50), if (start == 0) "page2" else null, start == 0)
         }
     }
@@ -207,4 +213,62 @@ class BatchRepositoryTest {
         assertEquals(BatchStatus.COMPLETED_WITH_ERRORS, batches.observe(id).first()!!.status)
         assertEquals(3, batches.observe(id).first()!!.progress.failed)
     }
+    @Test fun `playlist metadata and unavailable selection survive restoration`() = runBlocking {
+        unavailableEntries = true
+        val id = ready()
+        val parent = db.batchDao().get(id)!!
+        assertEquals("Teacher", parent.author); assertEquals(3, parent.totalItemCount)
+        assertEquals("https://i.ytimg.com/course.jpg", parent.thumbnailUrl)
+        assertEquals(1, parent.selectedCount)
+        assertEquals(listOf(null, "Private video", "Unsupported media URL"), newManager().items(id).first().map { it.unavailableReason })
+        batches.select(id, "lesson-1", true)
+        assertEquals(1, db.batchDao().get(id)!!.selectedCount)
+        batches.select(id, null, false)
+        assertEquals(0, db.batchDao().get(id)!!.selectedCount)
+        batches.select(id, null, true)
+        assertEquals(1, batches.estimate(id).newItems)
+        batches.enqueue(id)
+        assertEquals(listOf(0), db.batchDao().children(id).map { it.batchIndex })
+    }
+
+    @Test fun `stopping incremental analysis preserves cursor selection and already committed page`() = runBlocking {
+        val started = CompletableDeferred<Unit>()
+        val cancellable = object : CollectionExtractor by extractor {
+            override suspend fun getItems(url: String, limit: Int?, continuation: String?): CollectionPage {
+                if (continuation != null) { started.complete(Unit); awaitCancellation() }
+                return extractor.getItems(url, limit, continuation)
+            }
+        }
+        val manager = BatchRepository(db, downloads, CollectionExtractorRegistry(listOf(cancellable)))
+        val id = manager.create(url)
+        manager.discoverNext(id); manager.select(id, "lesson-0", true)
+        val job = launch { manager.discoverRemaining(id) }
+        started.await(); job.cancelAndJoin()
+        assertEquals("page2", db.batchDao().get(id)!!.continuation)
+        assertEquals(2, db.batchDao().get(id)!!.discoveredCount)
+        assertEquals("READY", db.batchDao().get(id)!!.status)
+        assertTrue(db.batchDao().items(id).first().selected)
+        newManager().discoverRemaining(id)
+        assertEquals(3, db.batchDao().get(id)!!.discoveredCount)
+        assertFalse(db.batchDao().get(id)!!.hasMore)
+        assertEquals(1, firstPageCalls)
+        assertTrue(downloads.queuedRequests().isEmpty())
+    }
+
+    @Test fun `one child extraction failure leaves other playlist children queueable and recoverable`() = runBlocking {
+        failingChild = true
+        val id = ready()
+        batches.configure(id, BatchFormatChoice.audioDefault("YouTube"), true, true)
+        batches.enqueue(id)
+        assertEquals(listOf("QUEUED", "FAILED", "QUEUED"), db.batchDao().children(id).map { it.status })
+        val recovered = downloads.restoreRecoverableTasks()
+        assertEquals(listOf(0, 2), recovered.map { it.batchIndex })
+        assertEquals(1, firstPageCalls) // No playlist rediscovery during recovery.
+        recovered.forEach { downloads.download(it) }
+        val snapshot = newManager().observe(id).first()!!
+        assertEquals(BatchStatus.COMPLETED_WITH_ERRORS, snapshot.status)
+        assertEquals(2, snapshot.progress.completed); assertEquals(1, snapshot.progress.failed)
+        assertTrue(db.batchDao().children(id).all { it.targetAudioBitrateKbps == 192 })
+    }
+
 }

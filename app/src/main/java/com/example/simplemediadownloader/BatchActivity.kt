@@ -13,6 +13,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+import coil.ImageLoader
+import androidx.compose.ui.platform.LocalContext
+import okhttp3.OkHttpClient
+import okhttp3.CookieJar
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 class BatchActivity : ComponentActivity() {
@@ -24,15 +30,18 @@ class BatchActivity : ComponentActivity() {
         setContent {
             SimpleMediaDownloaderTheme {
                 val state by viewModel.state.collectAsStateWithLifecycle()
-                BackHandler(state.snapshot != null) { viewModel.closePreview() }
+                BackHandler(state.snapshot != null) { if (state.discovering) viewModel.stopDiscovery() else if (!state.busy) viewModel.closePreview() }
                 BatchScreen(state, viewModel::open, viewModel::closePreview, viewModel::select, viewModel::discoverMore,
                     viewModel::page, { viewModel.configure(it) }, viewModel::audioDefault,
                     { viewModel.configure(skipExisting = it) }, { viewModel.configure(prefix = it) },
-                    viewModel::estimate, viewModel::pause, viewModel::resume, viewModel::cancel, viewModel::retry, viewModel::delete)
+                    viewModel::estimate, viewModel::pause, viewModel::resume, viewModel::cancel, viewModel::retry, viewModel::delete, viewModel::analyzeRemaining, viewModel::stopDiscovery)
                 state.estimate?.let { estimate ->
                     AlertDialog(onDismissRequest = viewModel::dismissEstimate,
                         title = { Text("Confirm batch download") },
                         text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            state.snapshot?.parent?.let { parent ->
+                                Text("${parent.selectedCount} selected · ${batchFormatLabel(parent.formatChoice)}")
+                            }
                             Text("${estimate.newItems} new · ${estimate.alreadyDownloaded} already downloaded · ${estimate.alreadyQueued} already queued")
                             Text(estimate.label)
                             if (estimate.likelyInsufficient) Text("Available storage is likely insufficient. This estimate includes room for temporary sources and a safety margin.", color = MaterialTheme.colorScheme.error)
@@ -53,7 +62,16 @@ internal fun BatchScreen(
     onSelect: (String?, Boolean) -> Unit, onMore: () -> Unit, onPage: (Int) -> Unit,
     onFormat: (BatchFormatChoice) -> Unit, onAudio: () -> Unit, onSkip: (Boolean) -> Unit, onPrefix: (Boolean) -> Unit,
     onEstimate: () -> Unit, onPause: () -> Unit, onResume: () -> Unit, onCancel: () -> Unit, onRetry: () -> Unit, onDelete: () -> Unit,
+    onAnalyze: () -> Unit = {}, onStopDiscovery: () -> Unit = {},
 ) {
+    val context = LocalContext.current
+    val thumbnails = remember(context) {
+        ImageLoader.Builder(context).okHttpClient {
+            OkHttpClient.Builder().dns(SafeDns()).cookieJar(CookieJar.NO_COOKIES)
+                .addInterceptor(SecurityInterceptor()).addNetworkInterceptor(SecurityInterceptor()).build()
+        }.build()
+    }
+    DisposableEffect(thumbnails) { onDispose { thumbnails.shutdown() } }
     val snapshot = state.snapshot
     val parent = snapshot?.parent
     val editable = parent?.status in setOf("DISCOVERING", "READY", "FAILED")
@@ -70,7 +88,16 @@ internal fun BatchScreen(
                     }
                 }
             } else {
-                item { TextButton(onClick = onBack) { Text("All batches") } }
+                item { TextButton(onClick = onBack, enabled = !state.busy) { Text("All batches") } }
+                parent.thumbnailUrl?.takeIf(NetworkSecurityPolicy::isAllowedShareUrl)?.let { thumbnail -> item {
+                    AsyncImage(thumbnail, "Playlist thumbnail", imageLoader = thumbnails, modifier = Modifier.fillMaxWidth().height(140.dp), contentScale = ContentScale.Crop)
+                } }
+                parent.author?.let { author -> item { Text(author, style = MaterialTheme.typography.titleMedium) } }
+                item { Text("${parent.discoveredCount}" + (parent.totalItemCount?.let { " of $it" } ?: "") + " items found · ${parent.selectedCount} selected") }
+                if (state.discovering) item {
+                    Text("Analyzing playlist…", Modifier.testTag("playlist_analyzing"))
+                    TextButton(onStopDiscovery, modifier = Modifier.testTag("playlist_stop")) { Text("Stop analyzing (keep discovered items)") }
+                }
                 item { Text("${snapshot.status.name.replace('_', ' ')} · ${snapshot.progress.completed} / ${snapshot.progress.selected} completed\n${snapshot.progress.running} active · ${snapshot.progress.queued} queued · ${snapshot.progress.failed} failed · ${snapshot.progress.cancelled} cancelled") }
                 if (editable) {
                     item { Text("Choose one format for all selected items", style = MaterialTheme.typography.titleMedium) }
@@ -100,10 +127,16 @@ internal fun BatchScreen(
                 }
                 items(state.items, key = { it.itemId }) { item ->
                     Row(Modifier.fillMaxWidth().testTag("batch_item_${item.position}")) {
-                        Checkbox(item.selected, { onSelect(item.itemId, it) }, enabled = editable && !state.busy)
+                        Checkbox(item.selected, { onSelect(item.itemId, it) }, enabled = editable && !state.busy && item.unavailableReason == null)
+                        item.thumbnailUrl?.takeIf(NetworkSecurityPolicy::isAllowedShareUrl)?.let { thumbnail ->
+                            AsyncImage(thumbnail, "Thumbnail for ${item.title ?: "item ${item.position + 1}"}",
+                                imageLoader = thumbnails, modifier = Modifier.padding(top = 8.dp, end = 8.dp).size(width = 72.dp, height = 48.dp), contentScale = ContentScale.Crop)
+                        }
                         Column(Modifier.weight(1f).padding(top = 8.dp)) {
                             Text("${item.position + 1}. ${item.title ?: "Untitled media"}")
                             item.author?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            item.durationSeconds?.takeIf { it > 0 }?.let { Text(playlistDurationLabel(it), style = MaterialTheme.typography.bodySmall) }
+                            item.unavailableReason?.let { Text("Skipped: $it", color = MaterialTheme.colorScheme.error) }
                             item.skipReason?.let { Text("Skipped: already ${it.lowercase()}") }
                         }
                     }
@@ -112,7 +145,10 @@ internal fun BatchScreen(
                     TextButton({ onPage(state.page - 1) }, enabled = state.page > 0 && !state.busy) { Text("Previous") }
                     TextButton({ onPage(state.page + 1) }, enabled = (state.page + 1) * 50 < parent.discoveredCount && !state.busy) { Text("Next page") }
                 } }
-                if (editable && parent.hasMore) item { OutlinedButton(onMore, enabled = !state.busy) { Text("Discover more items") } }
+                if (editable && parent.hasMore) {
+                    item { OutlinedButton(onMore, enabled = !state.busy) { Text("Discover next 50 items") } }
+                    item { OutlinedButton(onAnalyze, enabled = !state.busy) { Text("Analyze remaining playlist") } }
+                }
                 if (editable) item { Button(onEstimate, enabled = parent.selectedCount > 0 && !state.busy, modifier = Modifier.testTag("batch_review")) { Text("Review selected downloads") } }
                 else {
                     if (snapshot.status in setOf(BatchStatus.RUNNING, BatchStatus.QUEUED)) item { OutlinedButton(onPause, enabled = !state.busy) { Text("Pause batch") } }
@@ -125,4 +161,10 @@ internal fun BatchScreen(
             }
         }
     }
+}
+
+internal fun batchFormatLabel(choice: BatchFormatChoice): String = when (choice.mode) {
+    DownloadMode.AUDIO_MP3 -> "MP3 ${choice.mp3BitrateKbps} kbps"
+    DownloadMode.AUDIO_ORIGINAL -> "Native Audio"
+    DownloadMode.VIDEO -> if (choice.maximumHeight == 0) "Video · Best available" else "Video · ${choice.maximumHeight}p"
 }

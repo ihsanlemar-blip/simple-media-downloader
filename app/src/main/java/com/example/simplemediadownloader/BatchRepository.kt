@@ -52,10 +52,14 @@ class BatchRepository(
                 val page = extractor.getItems(original.sourceUrl, remaining?.coerceAtMost(50) ?: 50, original.continuation)
                 require(!page.hasMore || (page.nextContinuation != null && page.nextContinuation != original.continuation)) { "Collection returned a repeated continuation" }
                 require(page.items.size <= (remaining?.coerceAtMost(50) ?: 50)) { "Collection page exceeds requested limit" }
-                require(page.items.all { it.position >= 0 && it.id.isNotBlank() && NetworkSecurityPolicy.isAllowedShareUrl(it.url) }) { "Collection returned an invalid media URL" }
+                require(page.items.all { it.position >= 0 && it.id.isNotBlank() }) { "Collection returned an invalid media URL" }
                 database.withTransaction {
-                    dao.insertItems(page.items.map { BatchItemEntity(id, it.id, it.url, it.title, it.author, it.thumbnailUrl, it.durationSeconds, it.position) })
+                    currentCoroutineContext().ensureActive()
+                    dao.insertItems(page.items.map { BatchItemEntity(id, it.id, it.url, it.title, it.author, it.thumbnailUrl, it.durationSeconds, it.position,
+                        unavailableReason = it.unavailableReason ?: if (!NetworkSecurityPolicy.isAllowedShareUrl(it.url)) "Unsupported media URL" else null) })
                     dao.update(original.copy(title = info?.title ?: original.title, platform = info?.platform ?: original.platform,
+                        author = info?.author ?: original.author, thumbnailUrl = info?.thumbnailUrl ?: original.thumbnailUrl,
+                        totalItemCount = info?.itemCount ?: original.totalItemCount,
                         continuation = page.nextContinuation, hasMore = page.hasMore && (remaining == null || page.items.size < remaining),
                         status = BatchStatus.READY.name, error = null))
                     dao.updateCounts(id)
@@ -66,6 +70,13 @@ class BatchRepository(
                 dao.update(original.copy(status = BatchStatus.FAILED.name, error = CredentialRedactor.redactDiagnostics(error.message)))
                 throw error
             }
+        }
+    }
+    suspend fun discoverRemaining(id: String) {
+        // Persist one page before requesting the next; cancellation leaves a reusable cursor.
+        while (parent(id).hasMore) {
+            currentCoroutineContext().ensureActive()
+            discoverNext(id)
         }
     }
     suspend fun select(id: String, itemId: String?, selected: Boolean) = locked(id) {
@@ -114,7 +125,7 @@ class BatchRepository(
                     val childId = UUID.nameUUIDFromBytes((id + ":" + item.itemId).toByteArray(Charsets.UTF_8)).toString()
                     val title = item.title?.takeIf(String::isNotBlank) ?: "Downloaded media"
                     val request = DownloadRequest(childId, item.url, title, format, item.author, id, item.position, item.itemId,
-                        filenamePrefix = if (p.prefixOrder) "${(item.position + 1).toString().padStart(2, '0')} - " else null)
+                        filenamePrefix = if (p.prefixOrder) playlistFilenamePrefix(item.position, p.discoveredCount, p.totalItemCount) else null)
                     database.withTransaction {
                         val result = downloads.enqueue(request)
                         if (result.exceptionOrNull() is DuplicateActiveDownloadException) {
@@ -183,7 +194,7 @@ class BatchRepository(
         while (true) {
             val page = dao.items(id, 50, offset)
             if (page.isEmpty()) return
-            page.filter { it.selected }.forEach { action(it) }
+            page.filter { it.selected && it.unavailableReason == null }.forEach { action(it) }
             offset += page.size
         }
     }

@@ -14,6 +14,7 @@ data class BatchUiState(
     val items: List<BatchItemEntity> = emptyList(),
     val page: Int = 0,
     val busy: Boolean = false,
+    val discovering: Boolean = false,
     val error: String? = null,
     val estimate: BatchEstimate? = null,
 )
@@ -25,13 +26,14 @@ class BatchViewModel(application: Application, private val savedState: SavedStat
     val state = _state.asStateFlow()
     private var observation: Job? = null
     private var itemObservation: Job? = null
+    private var operation: Job? = null
     init {
         viewModelScope.launch { batches.batches.collect { list -> _state.update { it.copy(parents = list) } } }
         savedState.get<String>("batchId")?.let(::open)
     }
     fun initialize(url: String?) {
         if (url == null || savedState.get<String>("batchId") != null) return
-        perform {
+        perform(discovery = true) {
             val id = batches.create(url)
             open(id)
             batches.discoverNext(id)
@@ -57,7 +59,13 @@ class BatchViewModel(application: Application, private val savedState: SavedStat
         itemObservation?.cancel()
         itemObservation = viewModelScope.launch { batches.items(id, 50, page.coerceAtLeast(0) * 50).collect { list -> _state.update { it.copy(items = list) } } }
     }
-    fun discoverMore() = current { batches.discoverNext(it) }
+    fun discoverMore() = discover(false)
+    fun analyzeRemaining() = discover(true)
+    private fun discover(all: Boolean) {
+        val id = savedState.get<String>("batchId") ?: return
+        perform(discovery = true) { if (all) batches.discoverRemaining(id) else batches.discoverNext(id) }
+    }
+    fun stopDiscovery() { if (_state.value.discovering) operation?.cancel() }
     fun select(item: String?, selected: Boolean) = current { batches.select(it, item, selected) }
     fun configure(choice: BatchFormatChoice? = null, skipExisting: Boolean? = null, prefix: Boolean? = null) = current { id ->
         val p = requireNotNull(_state.value.snapshot).parent
@@ -84,14 +92,14 @@ class BatchViewModel(application: Application, private val savedState: SavedStat
         val id = savedState.get<String>("batchId") ?: return
         perform { block(id) }
     }
-    private fun perform(block: suspend () -> Unit) {
+    private fun perform(discovery: Boolean = false, block: suspend () -> Unit) {
         if (_state.value.busy) return
-        _state.update { it.copy(busy = true, error = null, estimate = null) }
-        viewModelScope.launch {
+        _state.update { it.copy(busy = true, discovering = discovery, error = null, estimate = null) }
+        operation = viewModelScope.launch {
             try { block() }
             catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
             catch (error: Exception) { _state.update { it.copy(error = CredentialRedactor.redactDiagnostics(error.message) ?: "Could not update this batch") } }
-            finally { _state.update { it.copy(busy = false) } }
+            finally { _state.update { it.copy(busy = false, discovering = false) } }
         }
     }
 }

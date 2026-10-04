@@ -36,6 +36,20 @@ class BatchDeviceTest {
         compose.onNodeWithTag("batch_review").performClick()
         assertEquals(1, reviews)
     }
+    @Test fun playlistAnalysisShowsKnownTotalAndStopKeepsBatch() {
+        var stops = 0
+        var cancellations = 0
+        val analyzing = parent.copy(discoveredCount = 43, totalItemCount = 120, author = "Teacher")
+        compose.setContent { MaterialTheme {
+            BatchScreen(BatchUiState(snapshot = BatchSnapshot(analyzing, BatchProgress(43, 0, 0, 0, 0, 0, 0)), busy = true, discovering = true),
+                {}, {}, { _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, { cancellations++ }, {}, {}, {}, { stops++ })
+        } }
+        compose.onNodeWithText("43 of 120 items found · 0 selected").assertExists()
+        compose.onNodeWithTag("batch_list").performScrollToNode(hasTestTag("playlist_stop"))
+        compose.onNodeWithTag("playlist_stop").performClick()
+        assertEquals(1, stops); assertEquals(0, cancellations)
+    }
+
     @Test fun roomBatchSelectionAndCursorSurviveDatabaseReopen() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "batch-device-${System.nanoTime()}.db"

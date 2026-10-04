@@ -256,8 +256,13 @@ network downloader. The flow is `CollectionExtractor → BatchRepository → Dow
 → DownloadRepository → DownloadService → DownloadEngine`. The existing native audio,
 MP3, muxing, ranged HTTP, MediaStore and cancellation paths handle every child.
 
-Paste or share a YouTube playlist link to open the collection preview. Discover more
-items incrementally, select individual items or all discovered items, choose one
+Type, paste or share a YouTube playlist link to open the collection preview. A valid
+`list` parameter on a watch link opens the playlist rather than the single video;
+remove the playlist context to download only that video. The preview shows available
+playlist title/channel/count, item thumbnails, positions and known durations. Discover
+50 items at a time or analyze the remaining playlist, with progress and a Stop button
+that retains discovered pages, selections and the continuation. Select individual
+items or all available discovered items, choose one
 format, then review duplicates and the estimated total before confirming. The Batches
 button opens saved previews and batch controls. Video choices are best available,
 1080p, 720p and 480p; a lower available resolution is accepted, and an existing
@@ -266,7 +271,12 @@ choices are Native Audio and MP3 128/192/256/320. Selecting Audio applies the sa
 platform defaults: YouTube MP3 with the configured bitrate (192 initially), other
 platforms Native Audio.
 
-YouTube playlist discovery uses the existing NewPipe networking adapter. Typed,
+YouTube playlist discovery uses `YouTubePlaylistExtractorAdapter`, NewPipe playlist
+metadata/continuations and the existing secured networking adapter. Known private,
+removed, paid, members-only, upcoming and invalid-URL entries are shown with a skip
+reason and cannot be selected. Unknown availability is handled by the normal child
+extractor; an individual failure does not stop other children. Thumbnail requests
+use SafeDns, redirect validation and no cookies. Typed,
 pasted and shared profile links use the same classifier and collection entry point,
 but social-profile discovery adapters are not yet supplied. These links show an
 explicit unsupported-collection message; an individual media URL remains usable.
@@ -275,7 +285,9 @@ for future profile and other collection adapters, without adding download engine
 
 Room schema 7 adds durable batch parents, paged discovery items, selection and
 continuation cursors, and optional batch identity/order/source-item fields on normal
-tasks. Migration 6→7 preserves existing task data and MP3 intent. Paused parents
+tasks. Schema 8 adds optional playlist author/thumbnail/total count and per-item
+unavailability reasons; migration 7→8 preserves existing selection, cursors and
+format intent. Migration 6→7 preserves existing task data and MP3 intent. Paused parents
 exclude their queued children from admission; active work is cancelled, cleaned up,
 and requeued for a full restart on resume. Recovery uses the existing interruption
 logic and cannot admit paused or cancelled batches. Child counts derive from SQL
@@ -290,7 +302,8 @@ allows twice the known output estimate plus 64 MiB for temporary data; unknown s
 never automatically block confirmation. Actual per-item storage checks still apply.
 
 Playlist filenames are numbered by default (`01 - Title.mp3`); profiles default to
-unnumbered names. Existing sanitization and collision handling remain in charge.
+unnumbered names. Numbering can be disabled, and uses sufficient zero padding for
+the known playlist count (for example `001 - Title` in a 120-item playlist). Existing sanitization and collision handling remain in charge.
 Batch controls pause, resume, cancel and retry failed children. Cancel keeps completed
 media. Deleting batch history detaches retained children and keeps media and individual
 history; individual cancel/retry/open/share/delete actions remain in Transfers/Vault.

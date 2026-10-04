@@ -21,7 +21,7 @@ class SimpleMediaDownloaderApp : Application() {
     lateinit var downloadDatabase: DownloadDatabase
         private set
     lateinit var batchRepository: BatchRepository
-        private set
+        internal set
     lateinit var downloadRepository: DownloadRepository
         internal set
     lateinit var downloadPreferenceStore: DownloadPreferenceStore
@@ -62,7 +62,7 @@ class SimpleMediaDownloaderApp : Application() {
             storageExporter = exporter,
         )
         batchRepository = BatchRepository(downloadDatabase, downloadRepository,
-            CollectionExtractorRegistry(listOf(YouTubeCollectionExtractor(dispatchers))),
+            CollectionExtractorRegistry(listOf(YouTubePlaylistExtractorAdapter(dispatchers))),
             availableBytes = { runCatching { android.os.StatFs(cacheDir.absolutePath).availableBytes }.getOrNull() })
         DownloadNotifier.createChannel(this)
     }

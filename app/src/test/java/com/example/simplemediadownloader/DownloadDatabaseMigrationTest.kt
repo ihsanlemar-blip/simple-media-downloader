@@ -42,6 +42,30 @@ class DownloadDatabaseMigrationTest {
     )
 
     @Test
+    fun `migrate 7 to 8 preserves playlist selection cursor and existing format`() {
+        helper.createDatabase(testDbName, 7).apply {
+            execSQL("""INSERT INTO download_batches (batch_id, source_url, platform, collection_type,
+                title, discovered_count, selected_count, created_at, status, continuation, has_more,
+                download_mode, maximum_height, mp3_bitrate_kbps, skip_existing, prefix_order)
+                VALUES ('playlist', 'https://youtube.com/playlist?list=PLfixture', 'YouTube',
+                'YOUTUBE_PLAYLIST', 'Course', 1, 1, 100, 'READY', 'cursor', 1, 'AUDIO_MP3', 0, 192, 1, 1)""")
+            execSQL("""INSERT INTO batch_items (batch_id, item_id, url, title, position, selected)
+                VALUES ('playlist', 'lesson', 'https://youtube.com/watch?v=lesson', 'Lesson', 0, 1)""")
+            close()
+        }
+        helper.runMigrationsAndValidate(testDbName, 8, true, DownloadDatabaseMigrations.MIGRATION_7_8).use { db ->
+            db.query("SELECT title, selected_count, continuation, download_mode, author, thumbnail_url, total_item_count FROM download_batches").use {
+                assertTrue(it.moveToFirst()); assertEquals("Course", it.getString(0)); assertEquals(1, it.getInt(1))
+                assertEquals("cursor", it.getString(2)); assertEquals("AUDIO_MP3", it.getString(3))
+                assertTrue(it.isNull(4)); assertTrue(it.isNull(5)); assertTrue(it.isNull(6))
+            }
+            db.query("SELECT selected, position, unavailable_reason FROM batch_items").use {
+                assertTrue(it.moveToFirst()); assertEquals(1, it.getInt(0)); assertEquals(0, it.getInt(1)); assertTrue(it.isNull(2))
+            }
+        }
+    }
+
+    @Test
     fun `migrate 6 to 7 preserves single downloads and creates indexed batch tables`() {
         helper.createDatabase(testDbName, 6).apply {
             execSQL("""INSERT INTO download_tasks (
