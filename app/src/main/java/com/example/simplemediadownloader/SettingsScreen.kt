@@ -67,6 +67,7 @@ fun SettingsScreen(
     onClearCache: () -> Unit,
     onRetryEngine: () -> Unit,
     modifier: Modifier = Modifier,
+    onYoutubeMp3BitrateSelect: (Int) -> Unit = {},
 ) {
     val haptic = LocalHapticFeedback.current
 
@@ -181,6 +182,24 @@ fun SettingsScreen(
                         }
                     }
                 }
+            }
+        }
+
+        item(key = "audio_downloads") {
+            SettingsCard(title = "Audio Downloads", icon = Icons.Rounded.Download) {
+                Text("YouTube audio default: MP3", fontWeight = FontWeight.SemiBold)
+                Text("YouTube MP3 quality • future downloads only")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PlatformAudioPolicy.MP3_BITRATES.forEach { bitrate ->
+                        FilterChip(
+                            selected = state.youtubeMp3BitrateKbps == bitrate,
+                            onClick = { onYoutubeMp3BitrateSelect(bitrate) },
+                            label = { Text("$bitrate kbps" + if (bitrate == 192) " • Recommended" else "") },
+                        )
+                    }
+                }
+                Text("Social media audio default: Native Audio")
+                Text("320 kbps is the maximum MP3 bitrate. Transcoding cannot restore detail lost in the source.", style = MaterialTheme.typography.bodySmall)
             }
         }
 

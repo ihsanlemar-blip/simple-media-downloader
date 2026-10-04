@@ -7,9 +7,9 @@ import org.junit.Test
 class ApplicationVersionAndIdentityTest {
 
     @Test
-    fun `verify application version code and name are bumped beyond 2_5_0`() {
-        assertEquals("2.5.1", BuildConfig.VERSION_NAME)
-        assertEquals(251, BuildConfig.VERSION_CODE)
+    fun `verify universal MP3 source version is 2_6_0`() {
+        assertEquals("2.6.0", BuildConfig.VERSION_NAME)
+        assertEquals(260, BuildConfig.VERSION_CODE)
         assertTrue("versionCode must be strictly greater than 250", BuildConfig.VERSION_CODE > 250)
     }
 

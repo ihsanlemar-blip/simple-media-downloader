@@ -235,6 +235,7 @@ object InstagramExtractor {
             MediaFormatCatalog(
                 sourceUrl = url,
                 title = title,
+                durationSeconds = targetProduct.optDouble("video_duration", 0.0).toLong().takeIf { it > 0 },
                 videoFormats = videoFormats,
                 audioFormats = audioFormats,
                 author = author,

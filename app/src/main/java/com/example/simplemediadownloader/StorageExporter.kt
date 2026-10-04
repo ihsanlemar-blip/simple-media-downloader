@@ -77,7 +77,7 @@ internal class DownloadsStorageExporter(
             val required = if (estimate != null) {
                 StorageCapacityPolicy.requiredBytes(
                     estimatedMediaBytes = estimate,
-                    requiresProcessing = request.format.requiresMuxing,
+                    requiresProcessing = request.format.requiresMuxing || request.format.requiresAudioTranscode,
                 )
             } else {
                 StorageCapacityPolicy.defaultReserveBytes(request.format.mode)
@@ -112,6 +112,11 @@ internal class DownloadsStorageExporter(
                 source.name,
                 actualExtension,
             )
+            if (request.format.requiresAudioTranscode) {
+                check(actualExtension == "mp3") { "MP3 request completed without an MP3 file" }
+                val coroutineContext = currentCoroutineContext()
+                Mp3Validation.validate(source) { coroutineContext.ensureActive() }
+            }
             val mimeType = MediaExportPolicy.mimeType(displayName, request.format.mode)
             mediaStoreWriter.write(
                 source = source,
@@ -288,6 +293,7 @@ internal class ContentResolverMediaStoreWriter(
             } ?: error("MediaStore could not open the output stream.")
 
             val cleanTitle = title?.ifBlank { null } ?: displayName.substringBeforeLast('.')
+            currentCoroutineContext().ensureActive()
             val published = resolver.update(
                 contentUri,
                 ContentValues().apply {
@@ -298,6 +304,7 @@ internal class ContentResolverMediaStoreWriter(
                 null,
             )
             check(published == 1) { "MediaStore did not publish the completed media." }
+            currentCoroutineContext().ensureActive()
             return MediaExportPolicy.output(
                 contentUri = contentUri,
                 displayName = displayName,

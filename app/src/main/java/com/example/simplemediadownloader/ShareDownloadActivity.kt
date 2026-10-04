@@ -12,6 +12,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -245,41 +247,46 @@ internal fun ShareDownloadContent(
                                 selected = selectedMode != DownloadMode.VIDEO,
                                 enabled = catalog.audioFormats.isNotEmpty(),
                                 onClick = {
-                                    catalog.audioFormats.firstOrNull()?.let { onSelectFormat(it.key) }
+                                    PlatformAudioPolicy.selectAudio(catalog, state.youtubeMp3BitrateKbps)?.let { onSelectFormat(it.key) }
                                 },
                                 label = { Text(stringResource(R.string.filter_audio)) },
                             )
                         }
 
-                        commonFormats.forEach { format ->
-                            ShareFormatRow(
-                                format = format,
-                                selected = format.key == state.selectedFormatKey,
-                                onSelected = { onSelectFormat(format.key) },
-                            )
-                        }
-
-                        if (advancedFormats.isNotEmpty()) {
-                            TextButton(
-                                onClick = { onToggleAdvanced(!state.advancedFormatsVisible) },
-                            ) {
-                                Text(
-                                    if (state.advancedFormatsVisible) {
-                                        stringResource(R.string.hide_advanced_formats)
-                                    } else {
-                                        stringResource(R.string.advanced_formats_count, advancedFormats.size)
-                                    },
+                        if (selectedMode != DownloadMode.VIDEO) {
+                            AudioFormatSections(catalog, state.selectedFormatKey, state.canDownload, { onSelectFormat(it.key) }, state.youtubeMp3BitrateKbps)
+                        } else {
+                            commonFormats.forEach { format ->
+                                ShareFormatRow(
+                                    format = format,
+                                    selected = format.key == state.selectedFormatKey,
+                                    onSelected = { onSelectFormat(format.key) },
                                 )
                             }
-                            if (state.advancedFormatsVisible) {
-                                advancedFormats.forEach { format ->
-                                    ShareFormatRow(
-                                        format = format,
-                                        selected = format.key == state.selectedFormatKey,
-                                        onSelected = { onSelectFormat(format.key) },
+
+                            if (advancedFormats.isNotEmpty()) {
+                                TextButton(
+                                    onClick = { onToggleAdvanced(!state.advancedFormatsVisible) },
+                                ) {
+                                    Text(
+                                        if (state.advancedFormatsVisible) {
+                                            stringResource(R.string.hide_advanced_formats)
+                                        } else {
+                                            stringResource(R.string.advanced_formats_count, advancedFormats.size)
+                                        },
                                     )
                                 }
+                                if (state.advancedFormatsVisible) {
+                                    advancedFormats.forEach { format ->
+                                        ShareFormatRow(
+                                            format = format,
+                                            selected = format.key == state.selectedFormatKey,
+                                            onSelected = { onSelectFormat(format.key) },
+                                        )
+                                    }
+                                }
                             }
+
                         }
 
                         state.selectedFormat?.let { selected ->
@@ -325,19 +332,20 @@ internal fun ShareDownloadContent(
 }
 
 @Composable
-private fun ShareFormatRow(
+internal fun ShareFormatRow(
     format: AvailableFormat,
     selected: Boolean,
+    enabled: Boolean = true,
     onSelected: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onSelected)
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onSelected)
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected = selected, onClick = onSelected)
+        RadioButton(selected = selected, onClick = null, enabled = enabled)
         Column(modifier = Modifier.weight(1f)) {
             Text(shareFormatLabel(format), fontWeight = FontWeight.SemiBold)
             Text(
@@ -378,5 +386,5 @@ internal fun shareFormatLabel(format: AvailableFormat): String = when (format.mo
         append("Original audio")
         if (format.bitrateKbps > 0) append(" · ${format.bitrateKbps} kbps")
     }
-    DownloadMode.AUDIO_MP3 -> "${format.bitrateKbps} kbps MP3"
+    DownloadMode.AUDIO_MP3 -> "${format.targetAudioBitrateKbps} kbps MP3"
 }

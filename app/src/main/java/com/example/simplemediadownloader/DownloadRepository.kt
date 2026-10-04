@@ -1,5 +1,7 @@
 package com.example.simplemediadownloader
 
+import kotlinx.coroutines.withContext
+
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 import kotlinx.coroutines.channels.Channel
@@ -171,6 +173,7 @@ class DownloadRepository(
                 if (taskAttemptGenerations[request.id] != attemptId) {
                     val finalRecord = historyStore.get(request.id)
                     if (finalRecord?.status == DownloadTaskStatus.CANCELLED) {
+                        withContext(kotlinx.coroutines.NonCancellable) { storageExporter.deleteOutput(output) }
                         return DownloadState.Cancelled
                     }
                 }
@@ -344,7 +347,12 @@ class DownloadRepository(
                     (percentage != null && abs(percentage - lastPersistedPercentage) >= 5.0f)
 
                 if (stageChanged || timeElapsed || percentageChangedSignificant) {
-                    persistProgress(request.id, stage, state.progress, attemptId)
+                    if (stageChanged && state is DownloadState.Converting && request.format.requiresAudioTranscode) {
+                        // Clear completed network byte totals when entering MP3 conversion.
+                        persistState(request.id, state, attemptId)
+                    } else {
+                        persistProgress(request.id, stage, state.progress, attemptId)
+                    }
                     lastPersistTime = now
                     lastPersistedPercentage = percentage
                     lastStage = stage
@@ -523,10 +531,10 @@ private fun DownloadRecord.transitionTo(state: DownloadState, now: Long): Downlo
         )
         is DownloadState.Converting -> running(
             DownloadProcessingStage.CONVERTING,
-            progress,
+            state.progress.percentage,
             state.progress,
             now,
-        )
+        ).copy(downloadedBytes = null, totalBytes = null)
         is DownloadState.Saving -> running(
             DownloadProcessingStage.SAVING,
             progress,
@@ -608,4 +616,3 @@ private fun DownloadState.toProcessingStage(): DownloadProcessingStage = when (t
     DownloadState.Cancelled -> DownloadProcessingStage.CANCELLED
     is DownloadState.Failed -> DownloadProcessingStage.FAILED
 }
-

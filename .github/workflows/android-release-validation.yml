@@ -41,6 +41,9 @@ jobs:
       - name: Build Release App Bundle
         run: ./gradlew :app:bundleRelease
 
+      - name: Verify MP3 native libraries in APKs and AAB
+        run: python3 scripts/verify_native_packaging.py app/build/outputs/apk/debug/*.apk app/build/outputs/apk/release/*.apk app/build/outputs/bundle/release/*.aab
+
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         if: success()

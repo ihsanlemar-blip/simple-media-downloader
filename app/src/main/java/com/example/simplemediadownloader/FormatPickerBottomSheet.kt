@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -78,6 +79,7 @@ fun FormatPickerBottomSheet(
     selectionEnabled: Boolean,
     onDismiss: () -> Unit,
     onSelected: (AvailableFormat) -> Unit,
+    defaultMp3BitrateKbps: Int = PlatformAudioPolicy.DEFAULT_MP3_BITRATE_KBPS,
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
 ) {
     val haptic = LocalHapticFeedback.current
@@ -86,9 +88,9 @@ fun FormatPickerBottomSheet(
     val initialMode = if (catalog.videoFormats.isNotEmpty()) {
         DownloadMode.VIDEO
     } else {
-        DownloadMode.AUDIO_ORIGINAL
+        PlatformAudioPolicy.defaultAudioMode(PlatformResolver.fromUrl(catalog.sourceUrl))
     }
-    var mode by remember(catalog.sourceUrl) { mutableStateOf(initialMode) }
+    var mode by rememberSaveable(catalog.sourceUrl) { mutableStateOf(initialMode) }
     var advancedMode by rememberSaveable(catalog.sourceUrl) { mutableStateOf(false) }
 
     val formats = when (mode) {
@@ -225,7 +227,7 @@ fun FormatPickerBottomSheet(
             }
 
             // Segmented Quality Control Mode Chips
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -247,12 +249,12 @@ fun FormatPickerBottomSheet(
                     shape = RoundedCornerShape(12.dp),
                 )
                 FilterChip(
-                    selected = mode == DownloadMode.AUDIO_ORIGINAL,
+                    selected = mode != DownloadMode.VIDEO,
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        mode = DownloadMode.AUDIO_ORIGINAL
+                        mode = PlatformAudioPolicy.defaultAudioMode(platform)
                     },
-                    enabled = catalog.audioFormats.any { it.mode == DownloadMode.AUDIO_ORIGINAL },
+                    enabled = catalog.audioFormats.isNotEmpty(),
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Rounded.MusicNote,
@@ -260,28 +262,9 @@ fun FormatPickerBottomSheet(
                             modifier = Modifier.size(16.dp),
                         )
                     },
-                    label = { Text(stringResource(R.string.mode_audio_original), fontWeight = FontWeight.SemiBold) },
+                    label = { Text("Audio", fontWeight = FontWeight.SemiBold) },
                     shape = RoundedCornerShape(12.dp),
                 )
-                if (catalog.audioFormats.any { it.mode == DownloadMode.AUDIO_MP3 }) {
-                    FilterChip(
-                        selected = mode == DownloadMode.AUDIO_MP3,
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            mode = DownloadMode.AUDIO_MP3
-                        },
-                        enabled = true,
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Rounded.AudioFile,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        },
-                        label = { Text(stringResource(R.string.mode_audio_mp3_chip), fontWeight = FontWeight.SemiBold) },
-                        shape = RoundedCornerShape(12.dp),
-                    )
-                }
             }
 
             // Simple vs Advanced Stream Switcher
@@ -344,15 +327,14 @@ fun FormatPickerBottomSheet(
                     .heightIn(max = 320.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(displayedFormats, key = AvailableFormat::key) { format ->
-                    FormatRadioCard(
-                        format = format,
-                        enabled = selectionEnabled,
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onSelected(format)
-                        },
-                    )
+                if (mode != DownloadMode.VIDEO) {
+                    item(key = "audio_sections") {
+                        AudioFormatSections(catalog, null, selectionEnabled, onSelected, defaultMp3BitrateKbps)
+                    }
+                } else {
+                    items(displayedFormats, key = AvailableFormat::key) { format ->
+                        FormatRadioCard(format = format, enabled = selectionEnabled, onClick = { onSelected(format) })
+                    }
                 }
             }
 

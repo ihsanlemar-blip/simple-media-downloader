@@ -24,10 +24,18 @@ data class AvailableFormat(
     val requiresDownscale: Boolean = false,
     val isQuickPreset: Boolean = false,
     val httpHeaders: Map<String, String>? = null,
+    val sourceExtension: String = extension,
+    val targetAudioBitrateKbps: Int = if (mode == DownloadMode.AUDIO_MP3) bitrateKbps else 0,
+    val durationSeconds: Long? = null,
+    val sourceSizeBytes: Long? = null,
 ) {
     val requiresMuxing: Boolean
-        get() = requiresDownscale || companionAudioFormatId != null || mode == DownloadMode.AUDIO_MP3
+        get() = requiresDownscale || companionAudioFormatId != null
 
+
+    val audioSelectionBitrateKbps: Int get() = if (requiresAudioTranscode) targetAudioBitrateKbps else bitrateKbps
+    val outputExtension: String get() = if (requiresAudioTranscode) "mp3" else extension
+    val requiresAudioTranscode: Boolean get() = mode == DownloadMode.AUDIO_MP3
 
     val isDataSaver: Boolean
         get() = (mode == DownloadMode.VIDEO && height in 1..540) ||
@@ -48,6 +56,7 @@ data class MediaFormatCatalog(
     val author: String? = null,
     val description: String? = null,
     val thumbnailUrl: String? = null,
+    val durationSeconds: Long? = null,
 )
 
 sealed interface FormatDiscoveryResult {
@@ -73,7 +82,7 @@ data class DownloadProgress(
     )
 
     val isDeterminate: Boolean
-        get() = percentage != null && percentage.isFinite() && totalBytes?.let { it > 0L } == true
+        get() = percentage != null && percentage.isFinite() && (totalBytes?.let { it > 0L } == true || status == "Converting to MP3…")
 }
 
 sealed interface DownloadResult {

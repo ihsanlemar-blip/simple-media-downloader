@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 
 @Database(
     entities = [DownloadTaskEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class DownloadDatabase : RoomDatabase() {
@@ -77,5 +77,18 @@ object DownloadDatabaseMigrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+    val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE download_tasks ADD COLUMN source_extension TEXT NOT NULL DEFAULT ''")
+            database.execSQL("ALTER TABLE download_tasks ADD COLUMN target_audio_bitrate_kbps INTEGER NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE download_tasks ADD COLUMN duration_seconds INTEGER")
+            database.execSQL("ALTER TABLE download_tasks ADD COLUMN source_size_bytes INTEGER")
+            database.execSQL("UPDATE download_tasks SET source_extension = file_extension")
+            // Before schema 6, AUDIO_MP3 meant an MP3 source, never a conversion request.
+            // Preserve queued native-source tasks rather than changing their output intent.
+            database.execSQL("UPDATE download_tasks SET download_mode = 'AUDIO_ORIGINAL' WHERE download_mode = 'AUDIO_MP3'")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
 }

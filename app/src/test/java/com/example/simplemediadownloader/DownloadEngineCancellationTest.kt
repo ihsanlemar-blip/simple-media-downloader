@@ -169,6 +169,8 @@ class DownloadEngineCancellationTest {
         val engine = OkHttpDownloadEngine(
             dispatchers = AppDispatchers(io = Dispatchers.IO),
             client = blockingClient,
+            // This tests call-registry cancellation; DNS/SSRF policy has dedicated tests.
+            enforceSecurityPolicy = false,
         )
 
         val taskId = "probe-cancel-task"

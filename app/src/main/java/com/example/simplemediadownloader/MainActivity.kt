@@ -237,6 +237,7 @@ private fun MainAppScaffold(
                         SettingsScreen(
                             state = state,
                             onThemeSelect = viewModel::setThemeMode,
+                            onYoutubeMp3BitrateSelect = viewModel::setYoutubeMp3BitrateKbps,
                             onDefaultChoiceSelect = viewModel::setDefaultDownloadChoice,
                             onWifiOnlyToggle = viewModel::setWifiOnly,
                             onAllowThirdPartyGatewaysToggle = viewModel::setAllowThirdPartyGateways,
@@ -253,6 +254,7 @@ private fun MainAppScaffold(
     // Modal Bottom Sheet for Format Picker
     state.formatCatalog?.takeIf { state.showFormatPicker }?.let { catalog ->
         FormatPickerBottomSheet(
+            defaultMp3BitrateKbps = state.youtubeMp3BitrateKbps,
             catalog = catalog,
             selectionEnabled = state.backend.ready,
             onDismiss = viewModel::dismissFormatPicker,
@@ -359,6 +361,7 @@ private fun ConfirmationDialog(
 }
 
 internal fun formatSizeLabel(format: AvailableFormat): String {
+    if (format.mode == DownloadMode.AUDIO_MP3) return Mp3SizeEstimator.display(format.estimatedSizeBytes)
     if (format.isQuickPreset) return "Size loading…"
     val bytes = format.estimatedSizeBytes ?: return "Size unknown"
     val units = arrayOf("B", "KB", "MB", "GB")

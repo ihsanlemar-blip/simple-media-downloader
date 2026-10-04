@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 
 data class ShareDownloadUiState(
+    val youtubeMp3BitrateKbps: Int = PlatformAudioPolicy.DEFAULT_MP3_BITRATE_KBPS,
     val sourceUrl: String? = null,
     val displayUrl: String = "",
     val platform: String = "Web",
@@ -114,6 +115,12 @@ class ShareDownloadViewModel @JvmOverloads constructor(
     private var cancelled = false
 
     init {
+        viewModelScope.launch {
+            preferenceStore.youtubeMp3BitrateKbps.collect { bitrate ->
+                _uiState.update { it.copy(youtubeMp3BitrateKbps = bitrate) }
+            }
+        }
+
         viewModelScope.launch {
             backendState.collect { backend ->
                 _uiState.update { current ->
@@ -352,6 +359,7 @@ class ShareDownloadViewModel @JvmOverloads constructor(
             preferenceStore.defaultChoice.value,
             catalog,
             gateway.fastVideoPreset(),
+            preferenceStore.youtubeMp3BitrateKbps.value,
         ) ?: catalog.videoFormats.firstOrNull() ?: catalog.audioFormats.firstOrNull()
 
     private fun restoredSelection(catalog: MediaFormatCatalog): AvailableFormat? {

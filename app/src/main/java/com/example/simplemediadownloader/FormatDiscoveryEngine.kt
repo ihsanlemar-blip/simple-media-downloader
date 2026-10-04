@@ -25,7 +25,7 @@ class NewPipeFormatDiscoveryEngine(
     private val dispatchers: AppDispatchers = AppDispatchers(),
     private val preferenceStore: DownloadPreferenceStore? = null,
 ) : FormatDiscoveryEngine {
-    override fun quickFormatCatalog(url: String): MediaFormatCatalog = MediaFormatCatalog(
+    override fun quickFormatCatalog(url: String): MediaFormatCatalog = AudioFormatOptions.augment(MediaFormatCatalog(
         sourceUrl = url,
         title = "Fast native downloads",
         videoFormats = QUICK_OUTPUT_HEIGHTS.map { height ->
@@ -50,7 +50,7 @@ class NewPipeFormatDiscoveryEngine(
             ),
         ),
         detailsLoading = true,
-    )
+    ))
 
     override fun fastVideoPreset(): AvailableFormat = AvailableFormat(
         key = "fast-video",
@@ -73,12 +73,15 @@ class NewPipeFormatDiscoveryEngine(
             val platform = PlatformResolver.fromUrl(url)
             val allowGateways = preferenceStore?.allowThirdPartyGateways?.value ?: false
             if (platform in listOf("Facebook", "TikTok", "Instagram", "X", "Reddit")) {
-                return@withContext SocialMediaExtractor.extract(
+                val result = SocialMediaExtractor.extract(
                     client = okHttpClient,
                     url = url,
                     platform = platform,
                     allowThirdPartyGateways = allowGateways,
                 )
+                return@withContext if (result is FormatDiscoveryResult.Success) {
+                    result.copy(catalog = AudioFormatOptions.augment(result.catalog))
+                } else result
             }
 
             try {
@@ -86,7 +89,7 @@ class NewPipeFormatDiscoveryEngine(
                 val extractor: StreamExtractor = service.getStreamExtractor(url)
                 extractor.fetchPage()
 
-                val catalog = createCatalog(url, extractor)
+                val catalog = AudioFormatOptions.augment(createCatalog(url, extractor))
                 if (catalog.videoFormats.isEmpty() && catalog.audioFormats.isEmpty()) {
                     FormatDiscoveryResult.Failure(
                         "No downloadable video or audio formats were reported.",
@@ -137,10 +140,9 @@ class NewPipeFormatDiscoveryEngine(
 
         val audioFormats = audioStreams
             .map { raw ->
-                val isMp3 = raw.format?.suffix?.equals("mp3", ignoreCase = true) == true
                 audioOption(
                     raw,
-                    if (isMp3) DownloadMode.AUDIO_MP3 else DownloadMode.AUDIO_ORIGINAL,
+                    DownloadMode.AUDIO_ORIGINAL,
                     durationSeconds,
                 )
             }
@@ -160,6 +162,7 @@ class NewPipeFormatDiscoveryEngine(
             title = extractor.name.orEmpty().ifBlank { "Available formats" },
             videoFormats = videoFormats,
             audioFormats = audioFormats,
+            durationSeconds = durationSeconds.takeIf { it > 0 },
         )
     }
 
@@ -269,6 +272,7 @@ class NewPipeFormatDiscoveryEngine(
         }
 
         return AvailableFormat(
+            durationSeconds = durationSeconds.takeIf { it > 0 },
             key = "audio:${mode.name.lowercase()}:${raw.format?.name.orEmpty()}:$bitrate",
             mode = mode,
             formatId = raw.content.orEmpty(),

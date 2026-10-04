@@ -5,9 +5,9 @@
 
 > 📦 **Downloads & Releases**:
 > * **Last Published Release**: [v2.5.0 on GitHub Releases](https://github.com/ihsanlemar-blip/simple-media-downloader/releases/tag/v2.5.0) ([SimpleMediaDownloader-v2.5.0-universal.apk](https://github.com/ihsanlemar-blip/simple-media-downloader/releases/download/v2.5.0/SimpleMediaDownloader-v2.5.0-universal.apk)).
-> * **Current Source (`main`)**: Version 2.5.1 (versionCode 251) contains subsequent reliability, security, and verification fixes prepared for the next release. To run the latest code, build from source following the [Building](#building) instructions below.
+> * **Current Source (`main`)**: Version 2.6.0 (versionCode 260) adds universal MP3 conversion and platform audio defaults, alongside the subsequent reliability, security, and verification fixes. This source version has not been published as a GitHub Release. To run the latest code, build from source following the [Building](#building) instructions below.
 
-Simple Media Downloader is a flagship Kotlin and Jetpack Compose Android application for saving publicly accessible media from TikTok, Instagram Reels, Facebook, YouTube, X (Twitter), and Reddit with full metadata and original title preservation. Format extraction runs on-device using TeamNewPipe's NewPipeExtractor alongside specialized direct network scrapers. Media streams are downloaded with OkHttp (featuring RFC 7233 range-request validation, automatic continuous fallback, and destination security policies), and audio/video track merging and extraction are processed natively on-device using platform `android.media.MediaMuxer`, `MediaExtractor`, and `MediaCodec` APIs without any external binaries or runtimes. In-app media preview playback is powered by AndroidX Media3 (ExoPlayer and UI).
+Simple Media Downloader is a flagship Kotlin and Jetpack Compose Android application for saving publicly accessible media from TikTok, Instagram Reels, Facebook, YouTube, X (Twitter), and Reddit with full metadata and original title preservation. Format extraction runs on-device using TeamNewPipe's NewPipeExtractor alongside specialized direct network scrapers. Media streams are downloaded with OkHttp (featuring RFC 7233 range-request validation, automatic continuous fallback, and destination security policies), and audio/video track merging and extraction are processed natively on-device using platform `android.media.MediaMuxer`, `MediaExtractor`, and `MediaCodec` APIs with bundled libmp3lame for real MP3 encoding and no external processing runtimes. In-app media preview playback is powered by AndroidX Media3 (ExoPlayer and UI).
 
 The app does not bypass DRM, private accounts, authentication, paywalls, or website policy. Source support changes as websites and extractor definitions evolve.
 
@@ -98,6 +98,7 @@ Requirements:
 
 - JDK 17
 - Android SDK 35
+- Android NDK 27.2.12479018 and CMake 3.22.1
 - network access for the first Gradle dependency resolution
 
 Linux / macOS commands:
@@ -124,7 +125,7 @@ Outputs:
 - minified release APK (universal): `app/build/outputs/apk/release/app-release-unsigned.apk`
 - release App Bundle: `app/build/outputs/bundle/release/app-release.aab`
 
-The release build generates a universal APK supporting all Android architectures (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`) because format extraction, OkHttp downloading, and container muxing operate via pure Java/Kotlin and platform MediaCodec/MediaMuxer APIs without architecture-bound native `.so` libraries. When distributing through app stores supporting Android App Bundles, the release App Bundle (`app-release.aab`) enables store-managed delivery.
+The release build generates a universal APK supporting all Android architectures (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`) with `libsmd_mp3.so` and dynamically linked `libmp3lame.so` packaged for every listed ABI. When distributing through app stores supporting Android App Bundles, the release App Bundle (`app-release.aab`) enables store-managed delivery.
 
 ### Application ID & Upgrade Compatibility
 
@@ -195,3 +196,55 @@ Use authorized public test media and test at least API 29, 33, 34, and 35:
 10. Verify light/dark themes, dynamic color, TalkBack announcements, large font, tablet share-window width, predictive back, and touch targets.
 11. Run a long Android 15 data-transfer session or controlled timeout test and verify interruption cleanup and retry.
 12. Validate the release build across target devices (e.g. `arm64-v8a` and `x86_64`) before distribution.
+
+## Audio outputs
+
+Extraction uses NewPipe + platform adapters; networking uses OkHttp; muxing
+uses Android MediaMuxer; MP3 conversion uses MediaExtractor + MediaCodec +
+bundled libmp3lame; preview uses AndroidX Media3 ExoPlayer.
+
+The Audio action uses MP3 on YouTube (192 kbps shipped default, configurable
+128/192/256/320) and Native Audio on Facebook, Instagram, TikTok, X/Twitter,
+Reddit, and unknown/future platforms. Native Audio remains available separately
+on YouTube. Other platforms expose MP3 in an expandable Convert to MP3 section.
+Expanding/collapsing never changes a selected output. Video defaults remain
+controlled by the existing default-download preference.
+
+MP3 uses CBR. Each estimate is `durationSeconds * bitrateKbps * 1000 / 8`
+bytes, displayed approximately in decimal MB: 300 seconds yields ~4.8, ~7.2,
+~9.6, and ~12.0 MB respectively. Unknown duration shows Size unavailable.
+192 kbps balances compatibility, size, and quality; 320 kbps means maximum
+bitrate and cannot recover information lost in AAC/Opus source audio.
+
+The converter consumes a fully downloaded, validated private local file,
+decodes only its audio track, streams bounded PCM into LAME, flushes into an
+MP3 .part file, validates Layer III frames and audio/mpeg, and only then exports
+to Music/MediaDownloader/. No WAV intermediate or video decoding is used.
+One conversion runs at a time, independently of network download concurrency.
+Native Audio is copied/demuxed without lossy encoding. Already-valid CBR MP3
+at the requested bitrate is copied without re-encoding after content validation.
+
+Supported PCM is signed 16-bit or clamped float, mono/stereo. 32/44.1/48 kHz
+are preserved. 8/11.025/12/16/22.05/24/88.2/96 kHz inputs use LAME’s bundled
+band-limited resampler to 44.1 or 48 kHz, allowing all four MPEG1 bitrates.
+Other channel layouts/sample rates fail explicitly; no sample dropping is used.
+Decoder availability depends on the Android device. Process-death recovery
+restarts a task using the existing queue mechanism, rather than resuming a
+partial encode. Source streams are selected from the highest quality audio-only
+tier with M4A/AAC preference, then WebM/Opus and other audio; video is a fallback
+only when standalone audio is absent. Existing security and HTTP range checks
+still run before local conversion.
+
+Room schema 6 persists source extension, source size, duration, and target
+bitrate. Migration 5→6 preserves existing records and maps old AUDIO_MP3 source-only
+rows to Native Audio, so queued legacy source downloads are not newly transcoded. Historical preference `MP3`
+now maps to an explicit Convert to MP3 action on all platforms, restoring its
+original intent. The existing `ORIGINAL_AUDIO` preference is now labelled
+Audio (platform default): its YouTube action intentionally changes to MP3 under
+the new product policy, while other platforms retain Native Audio. A value
+previously rewritten to ORIGINAL_AUDIO cannot be distinguished from a deliberate
+Audio selection, so it is not promoted to explicit MP3 conversion on every site.
+Native Audio remains separately selectable; already queued tasks are unaffected.
+
+LAME source/version, archive hash, license, and shared-library build details:
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

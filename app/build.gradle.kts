@@ -8,6 +8,14 @@ plugins {
 android {
     namespace = "com.example.simplemediadownloader"
     compileSdk = 35
+    ndkVersion = "27.2.12479018"
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
 
     defaultConfig {
         // Application ID is preserved as com.example.simplemediadownloader to maintain upgrade
@@ -15,10 +23,11 @@ android {
         // Modifying this ID would break in-place upgrades and orphan existing Room databases
         // and preferences stored under the previous package sandbox.
         applicationId = "com.example.simplemediadownloader"
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64") }
         minSdk = 29
         targetSdk = 35
-        versionCode = 251
-        versionName = "2.5.1"
+        versionCode = 260
+        versionName = "2.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

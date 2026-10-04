@@ -34,6 +34,24 @@ class DownloadRepositoryTest {
     )
 
     @Test
+    fun `MP3 conversion persists zero progress independently of source byte totals`() = runBlocking {
+        val history = InMemoryHistoryStore()
+        val engine = FakeDownloadEngine().apply {
+            emittedState = DownloadState.Converting(DownloadProgress(percentage = 0f, status = "Converting to MP3…"))
+        }
+        val repository = repository(engine, history, FakeStorageExporter(temporaryFolder.newFolder(), output))
+        val request = request("mp3-progress").copy(format = AudioFormatOptions.mp3(
+            format.copy(mode = DownloadMode.AUDIO_ORIGINAL, extension = "m4a"), 192, 300))
+        repository.enqueue(request).getOrThrow()
+        history.update(history.get(request.id)!!.copy(downloadedBytes = 5000, totalBytes = 5000))
+        repository.download(request)
+        val conversion = history.updates.first { it.stage == DownloadProcessingStage.CONVERTING }
+        assertEquals(0f, conversion.progressPercent)
+        assertNull(conversion.downloadedBytes)
+        assertNull(conversion.totalBytes)
+    }
+
+    @Test
     fun `repository inserts stable task and persists state transitions through completion`() = runBlocking {
         val outputDirectory = temporaryFolder.newFolder("downloads")
         val engine = FakeDownloadEngine().apply {
@@ -413,6 +431,7 @@ class DownloadRepositoryTest {
 
     private class InMemoryHistoryStore : DownloadHistoryStore {
         private val records = MutableStateFlow<Map<String, DownloadRecord>>(emptyMap())
+        val updates = mutableListOf<DownloadRecord>()
 
         override val activeTasks: Flow<List<DownloadRecord>> = records.map { values ->
             values.values.filter {
@@ -432,6 +451,7 @@ class DownloadRepositoryTest {
 
         override suspend fun update(record: DownloadRecord) {
             check(record.taskId in records.value)
+            updates.add(record)
             records.value = records.value + (record.taskId to record)
         }
 

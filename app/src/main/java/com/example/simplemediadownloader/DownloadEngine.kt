@@ -3,6 +3,7 @@ package com.example.simplemediadownloader
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import okhttp3.Call
@@ -76,7 +77,20 @@ internal fun selectBestAudioFormat(
     requestedBitrateKbps: Int,
     requestedKey: String? = null,
 ): AvailableFormat? {
-    val formats = catalog.audioFormats
+    if (requestedMode == DownloadMode.AUDIO_MP3) {
+        val bitrate = requestedBitrateKbps.takeIf { it in PlatformAudioPolicy.MP3_BITRATES }
+            ?: PlatformAudioPolicy.DEFAULT_MP3_BITRATE_KBPS
+        val exact = catalog.audioFormats.firstOrNull {
+            it.mode == DownloadMode.AUDIO_MP3 && it.targetAudioBitrateKbps == bitrate &&
+                (requestedKey == null || it.key == requestedKey)
+        }
+        return exact ?: AudioFormatOptions.bestSource(catalog.audioFormats)?.let {
+            AudioFormatOptions.mp3(it, bitrate, catalog.durationSeconds ?: it.durationSeconds)
+        } ?: catalog.audioFormats.firstOrNull {
+            it.mode == DownloadMode.AUDIO_MP3 && it.targetAudioBitrateKbps == bitrate
+        }
+    }
+    val formats = catalog.audioFormats.filter { it.mode == DownloadMode.AUDIO_ORIGINAL }
     if (formats.isEmpty()) return null
 
     if (requestedKey != null) {
@@ -107,6 +121,7 @@ class OkHttpDownloadEngine(
     private val client: OkHttpClient = OkHttpClient.Builder().build(),
     private val discoveryEngine: FormatDiscoveryEngine? = null,
     internal val enforceSecurityPolicy: Boolean = true,
+    private val mp3Transcoder: Mp3AudioTranscoder = Mp3AudioTranscoder(dispatchers),
 ) : DownloadEngine {
     private val activeCalls = ConcurrentHashMap<String, MutableSet<Call>>()
     private val cancellationRequests = ConcurrentHashMap.newKeySet<String>()
@@ -212,7 +227,7 @@ class OkHttpDownloadEngine(
                             is VideoMatchResult.NoFormatsAvailable -> null
                         }
                     } else {
-                        selectBestAudioFormat(discovery.catalog, request.format.mode, request.format.bitrateKbps, request.format.key)
+                        selectBestAudioFormat(discovery.catalog, request.format.mode, request.format.audioSelectionBitrateKbps, request.format.key)
                     }
                     matching ?: return@withContext DownloadExecutionResult.Failure(
                         message = "Could not find a downloadable stream for this format.",
@@ -244,7 +259,7 @@ class OkHttpDownloadEngine(
                                 else -> null
                             }
                         } else {
-                            selectBestAudioFormat(discovery.catalog, resolvedFormat.mode, resolvedFormat.bitrateKbps, resolvedFormat.key)
+                            selectBestAudioFormat(discovery.catalog, resolvedFormat.mode, resolvedFormat.audioSelectionBitrateKbps, resolvedFormat.key)
                         }
                         if (matching?.httpHeaders != null) {
                             resolvedFormat = resolvedFormat.copy(
@@ -319,6 +334,18 @@ class OkHttpDownloadEngine(
                                 onState = onState,
                             )
                             if (isAudioOnlyRequest) {
+                                if (resolvedFormat.requiresAudioTranscode) {
+                                    // Fast transfers may finish between throttled HTTP progress updates.
+                                    onState(DownloadState.Downloading(
+                                        DownloadProgress(
+                                            percentage = 100f,
+                                            downloadedBytes = downloadTargetFile.length(),
+                                            totalBytes = downloadTargetFile.length(),
+                                            status = "Downloading audio…",
+                                        ),
+                                        transferKind,
+                                    ))
+                                }
                                 var hasVideo = false
                                 val extractor = MediaExtractor()
                                 try {
@@ -335,7 +362,28 @@ class OkHttpDownloadEngine(
                                     runCatching { extractor.release() }
                                 }
 
-                                if (hasVideo) {
+                                if (resolvedFormat.requiresAudioTranscode) {
+                                    val mp3File = File(outputDirectory, "$baseName.mp3")
+                                    onState(DownloadState.Converting(DownloadProgress(percentage = 0f, status = "Converting to MP3…")))
+                                    try {
+                                        mp3Transcoder.transcode(
+                                            source = downloadTargetFile,
+                                            output = mp3File,
+                                            bitrateKbps = resolvedFormat.targetAudioBitrateKbps.takeIf { it in PlatformAudioPolicy.MP3_BITRATES }
+                                                ?: PlatformAudioPolicy.DEFAULT_MP3_BITRATE_KBPS,
+                                            isCancelled = { cancellationRequests.contains(request.id) },
+                                            onProgress = { percentage ->
+                                                onState(DownloadState.Converting(DownloadProgress(percentage = percentage, status = "Converting to MP3…")))
+                                            },
+                                        )
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (error: Exception) {
+                                        throw java.io.IOException("Media converter error: ${error.message}", error)
+                                    }
+                                    actualFinalFile = mp3File
+                                    actualExtension = "mp3"
+                                } else if (hasVideo) {
                                     onState(DownloadState.Merging(DownloadProgress(status = "Extracting audio track…")))
                                     // MediaMuxer MPEG-4 always creates an M4A audio container
                                     val audioExtension = "m4a"
@@ -363,7 +411,7 @@ class OkHttpDownloadEngine(
                                     val resolvedAudioFile = File(outputDirectory, "$baseName.$finalExt")
                                     if (downloadTargetFile.absolutePath != resolvedAudioFile.absolutePath) {
                                         resolvedAudioFile.delete()
-                                        downloadTargetFile.renameTo(resolvedAudioFile)
+                                        check(downloadTargetFile.renameTo(resolvedAudioFile)) { "Could not finalize original audio" }
                                     }
                                     actualFinalFile = resolvedAudioFile
                                     actualExtension = finalExt
@@ -464,7 +512,7 @@ class OkHttpDownloadEngine(
                                     else -> null
                                 }
                             } else {
-                                selectBestAudioFormat(freshDiscovery.catalog, resolvedFormat.mode, resolvedFormat.bitrateKbps, resolvedFormat.key)
+                                selectBestAudioFormat(freshDiscovery.catalog, resolvedFormat.mode, resolvedFormat.audioSelectionBitrateKbps, resolvedFormat.key)
                             }
                             if (freshMatching != null && freshMatching.formatId.isNotBlank()) {
                                 if (enforceSecurityPolicy && !NetworkSecurityPolicy.isAllowedMediaUrl(freshMatching.formatId, allowCleartextHttp = false)) {
@@ -479,6 +527,8 @@ class OkHttpDownloadEngine(
                                     formatId = freshMatching.formatId,
                                     companionAudioFormatId = freshMatching.companionAudioFormatId ?: resolvedFormat.companionAudioFormatId,
                                     httpHeaders = freshMatching.httpHeaders ?: resolvedFormat.httpHeaders,
+                                    sourceExtension = freshMatching.sourceExtension,
+                                    sourceSizeBytes = freshMatching.sourceSizeBytes,
                                 )
                                 continue
                             }
@@ -492,7 +542,11 @@ class OkHttpDownloadEngine(
                 actualFinalFile.delete()
                 DownloadExecutionResult.Cancelled
             } else {
-                val validationError = validateMediaFile(actualFinalFile, actualExtension)
+                val validationContext = kotlinx.coroutines.currentCoroutineContext()
+                val validationError = validateMediaFile(actualFinalFile, actualExtension) {
+                    validationContext.ensureActive()
+                    if (cancellationRequests.contains(request.id)) throw CancellationException("Validation cancelled")
+                }
                 if (validationError != null) {
                     actualFinalFile.delete()
                     validationError
@@ -1062,7 +1116,7 @@ class OkHttpDownloadEngine(
         }
     }
 
-    internal fun validateMediaFile(file: File, expectedExtension: String): DownloadExecutionResult.Failure? {
+    internal fun validateMediaFile(file: File, expectedExtension: String, checkCancelled: () -> Unit = {}): DownloadExecutionResult.Failure? {
         val length = file.length()
         if (length < 1024L) {
             return DownloadExecutionResult.Failure(
@@ -1103,6 +1157,20 @@ class OkHttpDownloadEngine(
                 message = "Downloaded file contains web content or an error page instead of media.",
                 category = DownloadFailureCategory.UNSUPPORTED_SITE,
             )
+        }
+
+        if (expectedExtension.equals("mp3", ignoreCase = true)) {
+            return try {
+                Mp3Validation.validate(file, checkCancelled)
+                null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                DownloadExecutionResult.Failure(
+                    "The downloaded file is not a valid MPEG Layer III MP3.",
+                    DownloadFailureCategory.CONVERTER_FAILURE,
+                )
+            }
         }
 
         // Check container signature
@@ -1287,4 +1355,3 @@ internal class TaskProgressAggregator(
         return DownloadState.Downloading(progress, transferKind)
     }
 }
-

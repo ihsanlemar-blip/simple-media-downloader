@@ -24,3 +24,8 @@
     public static int wtf(...);
     public static int println(...);
 }
+
+# RegisterNatives uses this exact class and the four isolated JNI methods.
+-keep class com.example.simplemediadownloader.Mp3EncoderBridge {
+    private native <methods>;
+}

@@ -11,7 +11,7 @@ object DownloadOptions {
     }
 
     fun audioBitrate(format: AvailableFormat): String =
-        "${format.bitrateKbps.takeIf { it > 0 }?.coerceIn(32, 320) ?: 192}K"
+        "${(if (format.mode == DownloadMode.AUDIO_MP3) format.targetAudioBitrateKbps else format.bitrateKbps).takeIf { it > 0 }?.coerceIn(32, 320) ?: PlatformAudioPolicy.DEFAULT_MP3_BITRATE_KBPS}K"
 
     fun variantSuffix(format: AvailableFormat): String {
         val safeId = format.formatId.replace(Regex("[^A-Za-z0-9_-]"), "_").take(32)

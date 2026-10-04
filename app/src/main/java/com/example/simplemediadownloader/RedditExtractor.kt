@@ -157,6 +157,7 @@ object RedditExtractor {
                 MediaFormatCatalog(
                     sourceUrl = url,
                     title = title,
+                    durationSeconds = redditVideo.optLong("duration", 0).takeIf { it > 0 },
                     videoFormats = videoFormats,
                     audioFormats = audioFormats,
                     author = author.takeIf { it.isNotBlank() },

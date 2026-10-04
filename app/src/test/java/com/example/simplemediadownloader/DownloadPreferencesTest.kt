@@ -44,6 +44,20 @@ class DownloadPreferencesTest {
     }
 
     @Test
+    fun `YouTube bitrate persists without changing queued format`(): Unit = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val store = SharedPreferencesDownloadPreferenceStore(context, AppDispatchers(io = Dispatchers.Unconfined))
+        assertEquals(192, store.youtubeMp3BitrateKbps.value)
+        val queued = mp3.copy(targetAudioBitrateKbps = 192)
+        store.setYoutubeMp3BitrateKbps(256)
+        assertEquals(256, SharedPreferencesDownloadPreferenceStore(context).youtubeMp3BitrateKbps.value)
+        assertEquals(192, queued.targetAudioBitrateKbps)
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { store.setYoutubeMp3BitrateKbps(200) }
+        }
+    }
+
+    @Test
     fun `stored values map safely and unknown values retain the default`() {
         DefaultDownloadChoice.entries.forEach { choice ->
             assertEquals(choice, DefaultDownloadChoice.fromStored(choice.name))
@@ -92,7 +106,7 @@ class DownloadPreferencesTest {
     @Test
     fun `audio and always ask preferences map to their intended action`() {
         assertSame(
-            mp3,
+            originalAudio,
             DefaultDownloadChoiceMapper.select(
                 DefaultDownloadChoice.ORIGINAL_AUDIO,
                 catalog,
@@ -109,9 +123,9 @@ class DownloadPreferencesTest {
     }
 
     @Test
-    fun `legacy MP3 preference migrates to ORIGINAL_AUDIO`() {
+    fun `legacy MP3 preference restores explicit conversion intent`() {
         assertEquals(
-            DefaultDownloadChoice.ORIGINAL_AUDIO,
+            DefaultDownloadChoice.MP3_AUDIO,
             DefaultDownloadChoice.fromStored("MP3"),
         )
     }

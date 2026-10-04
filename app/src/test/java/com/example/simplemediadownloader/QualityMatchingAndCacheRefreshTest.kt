@@ -146,7 +146,7 @@ class QualityMatchingAndCacheRefreshTest {
     }
 
     @Test
-    fun `audio preset selects closest bitrate`() {
+    fun `MP3 preset retains requested bitrate while choosing native source`() {
         val catalog = MediaFormatCatalog(
             sourceUrl = "https://example.test/audio",
             title = "Test Audio",
@@ -163,8 +163,9 @@ class QualityMatchingAndCacheRefreshTest {
             requestedBitrateKbps = 192,
         )
         assertNotNull(matched)
-        assertEquals(128, matched!!.bitrateKbps)
-        assertEquals("audio-128", matched.key)
+        assertEquals(192, matched!!.targetAudioBitrateKbps)
+        assertEquals(DownloadMode.AUDIO_MP3, matched.mode)
+        assertEquals("https://example.test/a/320", matched.formatId)
     }
 
     @Test
@@ -244,9 +245,9 @@ class QualityMatchingAndCacheRefreshTest {
 
     private fun audioFormat(bitrate: Int, key: String, url: String = "https://example.test/a/$bitrate") = AvailableFormat(
         key = key,
-        mode = DownloadMode.AUDIO_MP3,
+        mode = DownloadMode.AUDIO_ORIGINAL,
         formatId = url,
-        extension = "mp3",
+        extension = "m4a",
         bitrateKbps = bitrate,
     )
 

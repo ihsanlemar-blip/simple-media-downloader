@@ -35,6 +35,24 @@ class DownloadTaskDaoTest {
     }
 
     @Test
+    fun `queued MP3 target and source survive Room and preference changes`() = runBlocking {
+        val source = AvailableFormat("native", DownloadMode.AUDIO_ORIGINAL, "https://example.test/audio",
+            extension = "webm", bitrateKbps = 160, estimatedSizeBytes = 5_000_000)
+        val format = AudioFormatOptions.mp3(source, 192, 300)
+        dao.insert(record("queued-mp3").copy(format = format).toEntity())
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val preferences = SharedPreferencesDownloadPreferenceStore(context)
+        preferences.setYoutubeMp3BitrateKbps(320)
+        val restored = dao.get("queued-mp3")!!.toRecord().format
+        assertEquals(format, restored)
+        assertEquals("webm", restored.sourceExtension)
+        assertEquals("mp3", restored.outputExtension)
+        assertEquals(192, restored.targetAudioBitrateKbps)
+        assertEquals(300L, restored.durationSeconds)
+        assertEquals(5_000_000L, restored.sourceSizeBytes)
+    }
+
+    @Test
     fun `insert transition recovery and retry preserve stable task`() = runBlocking {
         val queued = record("stable-id").toEntity()
         dao.insert(queued)

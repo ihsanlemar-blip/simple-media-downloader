@@ -136,7 +136,7 @@ object TikTokExtractor {
                     audioFormats.add(
                         AvailableFormat(
                             key = "tiktok-music",
-                            mode = if (isMp3) DownloadMode.AUDIO_MP3 else DownloadMode.AUDIO_ORIGINAL,
+                            mode = DownloadMode.AUDIO_ORIGINAL,
                             formatId = musicUrl,
                             extension = if (isMp3) "mp3" else "m4a",
                             bitrateKbps = 128,
@@ -165,6 +165,7 @@ object TikTokExtractor {
                 MediaFormatCatalog(
                     sourceUrl = url,
                     title = title,
+                    durationSeconds = data.optLong("duration", 0).takeIf { it > 0 },
                     videoFormats = videoFormats,
                     audioFormats = audioFormats,
                     author = author,
@@ -417,7 +418,7 @@ object TikTokExtractor {
                     audioFormats.add(
                         AvailableFormat(
                             key = "tiktok-web-music",
-                            mode = if (isMp3) DownloadMode.AUDIO_MP3 else DownloadMode.AUDIO_ORIGINAL,
+                            mode = DownloadMode.AUDIO_ORIGINAL,
                             formatId = cleanAudioUrl,
                             extension = if (isMp3) "mp3" else "m4a",
                             bitrateKbps = 128,

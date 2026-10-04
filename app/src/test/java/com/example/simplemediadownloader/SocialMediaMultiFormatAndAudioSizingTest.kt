@@ -140,14 +140,23 @@ class SocialMediaMultiFormatAndAudioSizingTest {
     }
 
     @Test
-    fun testLiveTikTokExtraction() = kotlinx.coroutines.runBlocking {
-        val res = SocialMediaExtractor.extract(client, "https://vt.tiktok.com/ZSqfnBCjo/", "TikTok", false)
-        assertTrue("TikTok extraction must succeed", res is FormatDiscoveryResult.Success)
-        val catalog = (res as FormatDiscoveryResult.Success).catalog
-        assertTrue("Must have video formats", catalog.videoFormats.isNotEmpty())
-        assertTrue("Must have audio formats", catalog.audioFormats.isNotEmpty())
-        val hd = catalog.videoFormats.firstOrNull { it.height == 1080 }
-        assertNotNull("1080p must be present", hd)
-        assertTrue("1080p stream must have estimated size > 0", (hd?.estimatedSizeBytes ?: 0L) > 0L)
+    fun `TikTok fixture exposes native audio and shared MP3 options without live network`() = kotlinx.coroutines.runBlocking {
+        val html = """<html><meta property="og:title" content="Generated tone fixture">
+            <meta property="og:video" content="https://v.tiktokcdn.com/tone.mp4"></html>"""
+        val fixtureClient = OkHttpClient.Builder().addInterceptor { chain ->
+            val page = chain.request().url.host == "www.tiktok.com"
+            okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1)
+                .code(if (page) 200 else 206).message("Fixture")
+                .header("Content-Range", "bytes 0-0/2048")
+                .body(okhttp3.ResponseBody.create(null, if (page) html.toByteArray() else byteArrayOf(0)))
+                .build()
+        }.build()
+        val res = SocialMediaExtractor.extract(fixtureClient, "https://www.tiktok.com/@fixture/video/123", "TikTok", false)
+        assertTrue("Fixture extraction must succeed", res is FormatDiscoveryResult.Success)
+        val catalog = AudioFormatOptions.augment((res as FormatDiscoveryResult.Success).catalog)
+        assertTrue(catalog.videoFormats.isNotEmpty())
+        assertEquals(DownloadMode.AUDIO_ORIGINAL, PlatformAudioPolicy.selectAudio(catalog)!!.mode)
+        assertEquals(listOf(128, 192, 256, 320), catalog.audioFormats.filter { it.mode == DownloadMode.AUDIO_MP3 }.map { it.targetAudioBitrateKbps })
+        assertTrue(catalog.audioFormats.filter { it.mode == DownloadMode.AUDIO_MP3 }.all { it.estimatedSizeBytes == null })
     }
 }

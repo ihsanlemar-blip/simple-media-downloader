@@ -55,6 +55,10 @@ data class DownloadTaskEntity(
     @ColumnInfo(name = "technical_failure_detail") val technicalFailureDetail: String?,
     @ColumnInfo(name = "http_headers") val httpHeaders: String? = null,
     @ColumnInfo(name = "author") val author: String? = null,
+    @ColumnInfo(name = "source_extension", defaultValue = "''") val sourceExtension: String = "",
+    @ColumnInfo(name = "target_audio_bitrate_kbps", defaultValue = "0") val targetAudioBitrateKbps: Int = 0,
+    @ColumnInfo(name = "duration_seconds") val durationSeconds: Long? = null,
+    @ColumnInfo(name = "source_size_bytes") val sourceSizeBytes: Long? = null,
 )
 
 object CredentialRedactor {
@@ -128,6 +132,10 @@ fun DownloadRecord.toEntity(): DownloadTaskEntity {
         companionAudioFormatId = format.companionAudioFormatId,
         downloadMode = format.mode.name,
         fileExtension = format.extension,
+        sourceExtension = format.sourceExtension,
+        targetAudioBitrateKbps = format.targetAudioBitrateKbps,
+        durationSeconds = format.durationSeconds,
+        sourceSizeBytes = format.sourceSizeBytes,
         width = format.width,
         height = format.height,
         fps = format.fps,
@@ -173,6 +181,10 @@ fun DownloadTaskEntity.toRecord(): DownloadRecord = DownloadRecord(
         formatId = formatId,
         companionAudioFormatId = companionAudioFormatId,
         extension = fileExtension,
+        sourceExtension = sourceExtension.ifBlank { fileExtension },
+        targetAudioBitrateKbps = targetAudioBitrateKbps.takeIf { it > 0 } ?: if (downloadMode == "AUDIO_MP3") bitrateKbps else 0,
+        durationSeconds = durationSeconds,
+        sourceSizeBytes = sourceSizeBytes,
         width = width,
         height = height,
         fps = fps,

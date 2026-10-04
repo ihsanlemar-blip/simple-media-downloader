@@ -54,6 +54,7 @@ data class MainUiState(
     val wifiOnly: Boolean = false,
     val maxConcurrentDownloads: Int = 3,
     val allowThirdPartyGateways: Boolean = false,
+    val youtubeMp3BitrateKbps: Int = PlatformAudioPolicy.DEFAULT_MP3_BITRATE_KBPS,
 ) {
     val activeTaskCount: Int get() = tasks.count(DownloadTask::isActive)
 
@@ -184,6 +185,11 @@ class MainViewModel @JvmOverloads constructor(
                 } else if (!backend.initializing) {
                     _uiState.update { it.copy(isDiscoveringFormats = false) }
                 }
+            }
+        }
+        viewModelScope.launch {
+            preferenceStore.youtubeMp3BitrateKbps.collect { bitrate ->
+                _uiState.update { it.copy(youtubeMp3BitrateKbps = bitrate) }
             }
         }
         viewModelScope.launch {
@@ -408,11 +414,12 @@ class MainViewModel @JvmOverloads constructor(
         val exactCatalog = repository.cachedFormatCatalog(url)
         val quickCatalog = repository.quickFormatCatalog(url)
         val format = exactCatalog?.let {
-            DefaultDownloadChoiceMapper.select(choice, it, repository.fastVideoPreset())
+            DefaultDownloadChoiceMapper.select(choice, it, repository.fastVideoPreset(), preferenceStore.youtubeMp3BitrateKbps.value)
         } ?: DefaultDownloadChoiceMapper.select(
             choice,
             quickCatalog,
             repository.fastVideoPreset(),
+            preferenceStore.youtubeMp3BitrateKbps.value,
         )
         if (format == null) {
             showMessage("That default quality is not available. Choose a format instead.")
@@ -621,6 +628,10 @@ class MainViewModel @JvmOverloads constructor(
     fun retryBackendInitialization() {
         (getApplication<Application>() as SimpleMediaDownloaderApp)
             .retryBackendInitialization()
+    }
+
+    fun setYoutubeMp3BitrateKbps(bitrateKbps: Int) {
+        viewModelScope.launch { preferenceStore.setYoutubeMp3BitrateKbps(bitrateKbps) }
     }
 
     fun setDefaultDownloadChoice(choice: DefaultDownloadChoice) {

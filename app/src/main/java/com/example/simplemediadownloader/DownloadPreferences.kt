@@ -17,7 +17,8 @@ enum class DefaultDownloadChoice(
     VIDEO_1080("1080p", "Download 1080p"),
     VIDEO_720("720p", "Download 720p"),
     VIDEO_480("480p", "Download 480p"),
-    ORIGINAL_AUDIO("Audio", "Download audio"),
+    ORIGINAL_AUDIO("Audio (platform default)", "Download audio"),
+    MP3_AUDIO("Convert to MP3", "Download MP3"),
     ;
 
     val targetHeight: Int?
@@ -31,7 +32,7 @@ enum class DefaultDownloadChoice(
     companion object {
         fun fromStored(value: String?): DefaultDownloadChoice =
             when (value) {
-                "MP3" -> ORIGINAL_AUDIO
+                "MP3" -> MP3_AUDIO
                 else -> entries.firstOrNull { it.name == value } ?: BEST_VIDEO
             }
     }
@@ -54,6 +55,8 @@ enum class AppThemeMode(
 }
 
 interface DownloadPreferenceStore {
+    val youtubeMp3BitrateKbps: StateFlow<Int> get() = DefaultAudioPreferences.bitrate
+    suspend fun setYoutubeMp3BitrateKbps(bitrateKbps: Int) { require(bitrateKbps in PlatformAudioPolicy.MP3_BITRATES) }
     val defaultChoice: StateFlow<DefaultDownloadChoice>
     suspend fun setDefaultChoice(choice: DefaultDownloadChoice)
     val themeMode: StateFlow<AppThemeMode>
@@ -68,11 +71,28 @@ interface DownloadPreferenceStore {
     suspend fun setAllowThirdPartyGateways(enabled: Boolean)
 }
 
+private object DefaultAudioPreferences {
+    val bitrate: StateFlow<Int> = MutableStateFlow(PlatformAudioPolicy.DEFAULT_MP3_BITRATE_KBPS).asStateFlow()
+}
+
 class SharedPreferencesDownloadPreferenceStore(
     context: Context,
     private val dispatchers: AppDispatchers = AppDispatchers(),
 ) : DownloadPreferenceStore {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+    private val _youtubeMp3BitrateKbps = MutableStateFlow(
+        preferences.getInt(KEY_YOUTUBE_MP3_BITRATE, PlatformAudioPolicy.DEFAULT_MP3_BITRATE_KBPS)
+            .takeIf { it in PlatformAudioPolicy.MP3_BITRATES } ?: PlatformAudioPolicy.DEFAULT_MP3_BITRATE_KBPS,
+    )
+    override val youtubeMp3BitrateKbps: StateFlow<Int> = _youtubeMp3BitrateKbps.asStateFlow()
+
+    @SuppressLint("UseKtx")
+    override suspend fun setYoutubeMp3BitrateKbps(bitrateKbps: Int) = withContext(dispatchers.io) {
+        require(bitrateKbps in PlatformAudioPolicy.MP3_BITRATES)
+        check(preferences.edit().putInt(KEY_YOUTUBE_MP3_BITRATE, bitrateKbps).commit()) { "Could not save YouTube MP3 quality" }
+        _youtubeMp3BitrateKbps.value = bitrateKbps
+    }
+
     private val _defaultChoice = MutableStateFlow(
         DefaultDownloadChoice.fromStored(preferences.getString(KEY_DEFAULT_CHOICE, null)),
     )
@@ -178,6 +198,7 @@ class SharedPreferencesDownloadPreferenceStore(
 
     companion object {
         internal const val PREFERENCES_NAME = "download_preferences"
+        private const val KEY_YOUTUBE_MP3_BITRATE = "youtube_mp3_bitrate_kbps"
         private const val KEY_DEFAULT_CHOICE = "default_download_choice"
         private const val KEY_THEME_MODE = "app_theme_mode"
         private const val KEY_WIFI_ONLY = "pref_wifi_only"
@@ -192,6 +213,7 @@ internal object DefaultDownloadChoiceMapper {
         choice: DefaultDownloadChoice,
         catalog: MediaFormatCatalog,
         bestVideoFallback: AvailableFormat,
+        youtubeMp3BitrateKbps: Int = PlatformAudioPolicy.DEFAULT_MP3_BITRATE_KBPS,
     ): AvailableFormat? = when (choice) {
         DefaultDownloadChoice.ALWAYS_ASK -> null
         DefaultDownloadChoice.BEST_VIDEO -> bestVideo(catalog) ?: bestVideoFallback
@@ -201,13 +223,11 @@ internal object DefaultDownloadChoiceMapper {
             catalog,
             requireNotNull(choice.targetHeight),
         )
-        DefaultDownloadChoice.ORIGINAL_AUDIO -> catalog.audioFormats
-            .asSequence()
-            .filter { it.mode == DownloadMode.AUDIO_ORIGINAL || it.mode == DownloadMode.AUDIO_MP3 }
-            .maxWithOrNull(
-                compareBy<AvailableFormat> { it.bitrateKbps }
-                    .thenBy { it.estimatedSizeBytes ?: 0L },
-            )
+        DefaultDownloadChoice.ORIGINAL_AUDIO -> PlatformAudioPolicy.selectAudio(catalog, youtubeMp3BitrateKbps)
+        DefaultDownloadChoice.MP3_AUDIO -> AudioFormatOptions.augment(catalog).audioFormats.firstOrNull {
+            it.mode == DownloadMode.AUDIO_MP3 && it.targetAudioBitrateKbps == youtubeMp3BitrateKbps
+        }
+
     }
 
     private fun bestVideo(catalog: MediaFormatCatalog): AvailableFormat? =

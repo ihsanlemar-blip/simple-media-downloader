@@ -104,7 +104,7 @@ class DownloadEngineValidationTest {
     }
 
     @Test
-    fun `accepts valid MP3 with ID3 tag`() {
+    fun `rejects ID3 tag without MPEG Layer III frames`() {
         val mp3File = tempFolder.newFile("valid.mp3")
         val bytes = ByteArray(2048)
         // ID3 header
@@ -114,7 +114,7 @@ class DownloadEngineValidationTest {
         mp3File.writeBytes(bytes)
 
         val error = engine.validateMediaFile(mp3File, "mp3")
-        assertNull(error)
+        assertNotNull(error)
     }
 
     @Test
