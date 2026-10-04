@@ -32,23 +32,15 @@ object SourceUrlClassifier {
             if (playlistId(url) != null) return SourceUrlType.YOUTUBE_PLAYLIST
             if (path.firstOrNull()?.let { it.startsWith('@') || it in setOf("channel", "c", "user") } == true) return SourceUrlType.SOCIAL_PROFILE
         }
-        val profile = when (host) {
-            "tiktok.com" -> path.size == 1 && path[0].startsWith('@')
-            "instagram.com" -> path.size == 1 && path[0] !in setOf("p", "reel", "reels", "stories", "explore", "accounts")
-            "twitter.com", "x.com" -> path.size == 1 && path[0] !in setOf("home", "search", "i", "intent", "explore")
-            "facebook.com" -> (path.size == 1 && path[0] !in setOf("watch", "reel", "reels", "share")) || uri.path == "/profile.php"
-            "reddit.com" -> path.size == 2 && path[0] in setOf("user", "u")
-            else -> false
-        }
-        return if (profile) SourceUrlType.SOCIAL_PROFILE else SourceUrlType.SINGLE_MEDIA
+        return if (ProfileAddress.parse(url) != null) SourceUrlType.SOCIAL_PROFILE else SourceUrlType.SINGLE_MEDIA
     }
 }
 
 enum class CollectionType { YOUTUBE_PLAYLIST, SOCIAL_PROFILE, OTHER_COLLECTION }
 enum class BatchStatus { DISCOVERING, READY, QUEUED, RUNNING, PAUSED, COMPLETED, COMPLETED_WITH_ERRORS, CANCELLED, FAILED }
 data class CollectionInfo(val sourceUrl: String, val platform: String, val type: CollectionType, val title: String?, val itemCount: Int? = null, val author: String? = null, val thumbnailUrl: String? = null)
-data class CollectionItem(val id: String, val url: String, val title: String?, val author: String?, val thumbnailUrl: String?, val durationSeconds: Long?, val position: Int, val unavailableReason: String? = null)
-data class CollectionPage(val items: List<CollectionItem>, val nextContinuation: String?, val hasMore: Boolean)
+data class CollectionItem(val id: String, val url: String, val title: String?, val author: String?, val thumbnailUrl: String?, val durationSeconds: Long?, val position: Int, val unavailableReason: String? = null, val publishedAtSeconds: Long? = null)
+data class CollectionPage(val items: List<CollectionItem>, val nextContinuation: String?, val hasMore: Boolean, val notice: String? = null)
 interface CollectionExtractor {
     suspend fun canHandle(url: String): Boolean
     suspend fun getInfo(url: String): CollectionInfo

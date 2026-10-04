@@ -309,3 +309,19 @@ media. Deleting batch history detaches retained children and keeps media and ind
 history; individual cancel/retry/open/share/delete actions remain in Transfers/Vault.
 Batch work uses the user's existing network concurrency setting (it never increases
 it), one collection discovery operation, and the existing single MP3 conversion slot.
+
+### Social profile latest-N rollout
+
+Profile links open a count chooser before any crawling: Latest 10/20/50/100 or a
+validated custom value from 1 to 100. The default is 20. Social profile batches
+start with Native Audio; optional MP3 uses the same expandable picker and common
+conversion engine as individual downloads. Discovery is serialized, paged, deduplicated
+by post ID, cancellable and persisted in Room schema 9, including dates/page cursors.
+Known dates retain newest-first order; unknown dates retain the public feed order.
+
+The first adapter is TikTok; the remaining social adapters are being added independently.
+TikTok reads public profile metadata and the public recent-post endpoint. If direct
+access is limited, its existing third-party gateway opt-in can permit TikWM fallback
+for a profile verified public. The chooser discloses this: username, count and cursor
+are sent, never origin cookies. Private profiles never use that fallback. Normal
+single-post extraction and its existing gateway policy remain unchanged.

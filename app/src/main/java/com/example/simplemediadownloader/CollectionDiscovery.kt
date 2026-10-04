@@ -105,5 +105,5 @@ class YouTubePlaylistExtractorAdapter internal constructor(
 
 class CollectionExtractorRegistry(private val extractors: List<CollectionExtractor>) {
     suspend fun extractor(url: String): CollectionExtractor = extractors.firstOrNull { it.canHandle(url) }
-        ?: error("Collection discovery is not available for this platform yet. Open an individual media link instead.")
+        ?: throw ProfileDiscoveryException("Collection discovery is not available for this platform yet. Open an individual media link instead.")
 }

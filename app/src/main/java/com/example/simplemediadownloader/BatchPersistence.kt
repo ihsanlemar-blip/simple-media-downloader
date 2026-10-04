@@ -26,6 +26,8 @@ data class BatchDownloadEntity(
     val author: String? = null,
     @ColumnInfo(name = "thumbnail_url") val thumbnailUrl: String? = null,
     @ColumnInfo(name = "total_item_count") val totalItemCount: Int? = null,
+    @ColumnInfo(name = "discovery_page", defaultValue = "0") val discoveryPage: Int = 0,
+    @ColumnInfo(name = "discovery_notice") val discoveryNotice: String? = null,
 ) { val formatChoice get() = BatchFormatChoice(DownloadMode.valueOf(downloadMode), maximumHeight, mp3BitrateKbps) }
 
 @Entity(tableName = "batch_items", primaryKeys = ["batch_id", "item_id"],
@@ -44,6 +46,7 @@ data class BatchItemEntity(
     @ColumnInfo(name = "child_task_id") val childTaskId: String? = null,
     @ColumnInfo(name = "skip_reason") val skipReason: String? = null,
     @ColumnInfo(name = "unavailable_reason") val unavailableReason: String? = null,
+    @ColumnInfo(name = "published_at_seconds") val publishedAtSeconds: Long? = null,
 )
 
 data class BatchChildCounts(val queued: Int, val running: Int, val completed: Int, val failed: Int, val cancelled: Int)
@@ -58,6 +61,8 @@ interface BatchDao {
     @Query("SELECT * FROM download_batches WHERE batch_id = :id") fun observe(id: String): Flow<BatchDownloadEntity?>
     @Query("SELECT * FROM batch_items WHERE batch_id = :id ORDER BY position LIMIT :limit OFFSET :offset") suspend fun items(id: String, limit: Int = 50, offset: Int = 0): List<BatchItemEntity>
     @Query("SELECT * FROM batch_items WHERE batch_id = :id ORDER BY position LIMIT :limit OFFSET :offset") fun observeItems(id: String, limit: Int = 50, offset: Int = 0): Flow<List<BatchItemEntity>>
+    @Query("SELECT item_id FROM batch_items WHERE batch_id = :id") suspend fun knownIds(id: String): List<String>
+    @Query("UPDATE batch_items SET position = :position WHERE batch_id = :id AND item_id = :itemId") suspend fun reorder(id: String, itemId: String, position: Int)
     @Query("SELECT * FROM download_tasks WHERE batch_id = :id ORDER BY batch_index") suspend fun children(id: String): List<DownloadTaskEntity>
     @Query("""SELECT COALESCE(SUM(status = 'QUEUED'), 0) AS queued,
         COALESCE(SUM(status = 'RUNNING'), 0) AS running, COALESCE(SUM(status = 'COMPLETED'), 0) AS completed,

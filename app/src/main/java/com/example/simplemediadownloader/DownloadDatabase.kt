@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 
 @Database(
     entities = [DownloadTaskEntity::class, BatchDownloadEntity::class, BatchItemEntity::class],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class DownloadDatabase : RoomDatabase() {
@@ -123,5 +123,14 @@ object DownloadDatabaseMigrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+    val MIGRATION_8_9 = object : Migration(8, 9) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE download_batches ADD COLUMN discovery_page INTEGER NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE download_batches ADD COLUMN discovery_notice TEXT")
+            database.execSQL("ALTER TABLE batch_items ADD COLUMN published_at_seconds INTEGER")
+            database.execSQL("UPDATE download_batches SET requested_count = 20 WHERE collection_type = 'SOCIAL_PROFILE' AND requested_count IS NULL")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
 }

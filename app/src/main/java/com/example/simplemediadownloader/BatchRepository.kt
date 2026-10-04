@@ -35,9 +35,10 @@ class BatchRepository(
             SourceUrlType.SOCIAL_PROFILE -> CollectionType.SOCIAL_PROFILE
             else -> CollectionType.OTHER_COLLECTION
         }
+        if (type == CollectionType.SOCIAL_PROFILE) ProfileDiscoveryPolicy.validate(requireNotNull(requestedCount) { "Choose how many recent posts to discover" })
         val id = UUID.randomUUID().toString()
         dao.insert(BatchDownloadEntity(id, url, PlatformResolver.fromUrl(url), type.name, null, requestedCount,
-            0, 0, clock(), BatchStatus.DISCOVERING.name, prefixOrder = type == CollectionType.YOUTUBE_PLAYLIST))
+            0, 0, clock(), BatchStatus.DISCOVERING.name, downloadMode = if (type == CollectionType.SOCIAL_PROFILE) DownloadMode.AUDIO_ORIGINAL.name else DownloadMode.VIDEO.name, prefixOrder = type == CollectionType.YOUTUBE_PLAYLIST))
         return id
     }
     suspend fun discoverNext(id: String) = locked(id) {
@@ -45,6 +46,8 @@ class BatchRepository(
             val original = parent(id)
             check(original.status in editableStatuses) { "This batch is already queued" }
             if (!original.hasMore) return@withLock
+            val profile = original.collectionType == CollectionType.SOCIAL_PROFILE.name
+            if (profile && original.discoveryPage >= 50) throw ProfileDiscoveryException("Could not load more posts. The platform is not returning new public posts.")
             try {
                 val extractor = extractors.extractor(original.sourceUrl)
                 val info = if (original.discoveredCount == 0) extractor.getInfo(original.sourceUrl) else null
@@ -53,22 +56,36 @@ class BatchRepository(
                 require(!page.hasMore || (page.nextContinuation != null && page.nextContinuation != original.continuation)) { "Collection returned a repeated continuation" }
                 require(page.items.size <= (remaining?.coerceAtMost(50) ?: 50)) { "Collection page exceeds requested limit" }
                 require(page.items.all { it.position >= 0 && it.id.isNotBlank() }) { "Collection returned an invalid media URL" }
+                val fresh = if (profile) {
+                    val known = dao.knownIds(id).toSet()
+                    page.items.filter { it.unavailableReason == null && NetworkSecurityPolicy.isAllowedShareUrl(it.url) && SourceUrlClassifier.classify(it.url) == SourceUrlType.SINGLE_MEDIA && PlatformResolver.fromUrl(it.url) == PlatformResolver.fromUrl(original.sourceUrl) }
+                        .distinctBy { it.id }.filter { it.id !in known }.take(remaining ?: ProfileDiscoveryPolicy.MAX_COUNT)
+                        .mapIndexed { index, item -> item.copy(position = original.discoveredCount + index) }
+                } else page.items
+                val found = original.discoveredCount + fresh.size
+                val more = page.hasMore && (remaining == null || if (profile) found < requireNotNull(original.requestedCount) else page.items.size < remaining)
                 database.withTransaction {
                     currentCoroutineContext().ensureActive()
-                    dao.insertItems(page.items.map { BatchItemEntity(id, it.id, it.url, it.title, it.author, it.thumbnailUrl, it.durationSeconds, it.position,
-                        unavailableReason = it.unavailableReason ?: if (!NetworkSecurityPolicy.isAllowedShareUrl(it.url)) "Unsupported media URL" else null) })
+                    dao.insertItems(fresh.map { BatchItemEntity(id, it.id, it.url, it.title, it.author, it.thumbnailUrl, it.durationSeconds, it.position,
+                        unavailableReason = it.unavailableReason ?: if (!NetworkSecurityPolicy.isAllowedShareUrl(it.url)) "Unsupported media URL" else null, publishedAtSeconds = it.publishedAtSeconds) })
                     dao.update(original.copy(title = info?.title ?: original.title, platform = info?.platform ?: original.platform,
                         author = info?.author ?: original.author, thumbnailUrl = info?.thumbnailUrl ?: original.thumbnailUrl,
                         totalItemCount = info?.itemCount ?: original.totalItemCount,
-                        continuation = page.nextContinuation, hasMore = page.hasMore && (remaining == null || page.items.size < remaining),
+                        continuation = page.nextContinuation, hasMore = more,
+                        discoveryPage = original.discoveryPage + 1,
+                        discoveryNotice = if (profile && !more && found < requireNotNull(original.requestedCount)) "Only $found public media posts were available. The platform may limit public access." else page.notice,
                         status = BatchStatus.READY.name, error = null))
                     dao.updateCounts(id)
+                    if (profile) {
+                        val items = dao.items(id, ProfileDiscoveryPolicy.MAX_COUNT)
+                        if (items.all { it.publishedAtSeconds != null }) items.sortedByDescending { it.publishedAtSeconds }.forEachIndexed { index, item -> dao.reorder(id, item.itemId, index) }
+                    }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled // The durable cursor still points to the uncommitted page.
             } catch (error: Exception) {
-                dao.update(original.copy(status = BatchStatus.FAILED.name, error = CredentialRedactor.redactDiagnostics(error.message)))
-                throw error
+                dao.update(original.copy(status = BatchStatus.FAILED.name, error = if (profile) profileError(error) else CredentialRedactor.redactDiagnostics(error.message)))
+                if (profile) throw ProfileDiscoveryException(profileError(error)) else throw error
             }
         }
     }

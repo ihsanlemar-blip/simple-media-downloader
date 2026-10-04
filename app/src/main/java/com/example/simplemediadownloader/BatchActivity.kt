@@ -10,6 +10,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -35,6 +39,8 @@ class BatchActivity : ComponentActivity() {
                     viewModel::page, { viewModel.configure(it) }, viewModel::audioDefault,
                     { viewModel.configure(skipExisting = it) }, { viewModel.configure(prefix = it) },
                     viewModel::estimate, viewModel::pause, viewModel::resume, viewModel::cancel, viewModel::retry, viewModel::delete, viewModel::analyzeRemaining, viewModel::stopDiscovery)
+                state.pendingProfileUrl?.let { ProfileCountDialog(state.busy, viewModel::startProfile, viewModel::dismissProfileChoice,
+                    gatewayDisclosure = ProfileAddress.parse(it)?.platform == "TikTok" && (application as SimpleMediaDownloaderApp).downloadPreferenceStore.allowThirdPartyGateways.value) }
                 state.estimate?.let { estimate ->
                     AlertDialog(onDismissRequest = viewModel::dismissEstimate,
                         title = { Text("Confirm batch download") },
@@ -95,9 +101,10 @@ internal fun BatchScreen(
                 parent.author?.let { author -> item { Text(author, style = MaterialTheme.typography.titleMedium) } }
                 item { Text("${parent.discoveredCount}" + (parent.totalItemCount?.let { " of $it" } ?: "") + " items found · ${parent.selectedCount} selected") }
                 if (state.discovering) item {
-                    Text("Analyzing playlist…", Modifier.testTag("playlist_analyzing"))
+                    Text(if (parent.collectionType == "SOCIAL_PROFILE") "Finding latest ${parent.requestedCount} posts… ${parent.discoveredCount} found" else "Analyzing playlist…", Modifier.testTag("playlist_analyzing"))
                     TextButton(onStopDiscovery, modifier = Modifier.testTag("playlist_stop")) { Text("Stop analyzing (keep discovered items)") }
                 }
+                parent.discoveryNotice?.let { notice -> item { Text(notice) } }
                 item { Text("${snapshot.status.name.replace('_', ' ')} · ${snapshot.progress.completed} / ${snapshot.progress.selected} completed\n${snapshot.progress.running} active · ${snapshot.progress.queued} queued · ${snapshot.progress.failed} failed · ${snapshot.progress.cancelled} cancelled") }
                 if (editable) {
                     item { Text("Choose one format for all selected items", style = MaterialTheme.typography.titleMedium) }
@@ -110,6 +117,13 @@ internal fun BatchScreen(
                         for (height in listOf(0, 1080, 720, 480)) item {
                             FilterChip(parent.maximumHeight == height, { onFormat(BatchFormatChoice(DownloadMode.VIDEO, height)) },
                                 label = { Text(if (height == 0) "Best available" else "${height}p") }, enabled = !state.busy)
+                        }
+                    } else if (parent.collectionType == "SOCIAL_PROFILE") {
+                        item {
+                            val catalog = remember(parent.sourceUrl) { AudioFormatOptions.augment(MediaFormatCatalog(parent.sourceUrl, parent.title ?: "Profile", emptyList(), listOf(
+                                AvailableFormat("batch-native", DownloadMode.AUDIO_ORIGINAL, "quick-profile-audio", extension = "", isQuickPreset = true, formatNote = "Original source format")))) }
+                            val selected = catalog.audioFormats.firstOrNull { it.mode.name == parent.downloadMode && (it.mode != DownloadMode.AUDIO_MP3 || it.targetAudioBitrateKbps == parent.mp3BitrateKbps) }
+                            AudioFormatSections(catalog, selected?.key, !state.busy, { format -> onFormat(BatchFormatChoice(format.mode, mp3BitrateKbps = format.targetAudioBitrateKbps.takeIf { it > 0 } ?: parent.mp3BitrateKbps)) })
                         }
                     } else {
                         item { FilterChip(parent.downloadMode == "AUDIO_ORIGINAL", { onFormat(BatchFormatChoice(DownloadMode.AUDIO_ORIGINAL)) }, label = { Text("Native Audio") }, enabled = !state.busy) }
@@ -135,6 +149,9 @@ internal fun BatchScreen(
                         Column(Modifier.weight(1f).padding(top = 8.dp)) {
                             Text("${item.position + 1}. ${item.title ?: "Untitled media"}")
                             item.author?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            item.publishedAtSeconds?.let { seconds ->
+                                runCatching { DateTimeFormatter.ISO_LOCAL_DATE.format(Instant.ofEpochSecond(seconds).atZone(ZoneOffset.UTC)) }.getOrNull()?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            }
                             item.durationSeconds?.takeIf { it > 0 }?.let { Text(playlistDurationLabel(it), style = MaterialTheme.typography.bodySmall) }
                             item.unavailableReason?.let { Text("Skipped: $it", color = MaterialTheme.colorScheme.error) }
                             item.skipReason?.let { Text("Skipped: already ${it.lowercase()}") }
@@ -147,7 +164,7 @@ internal fun BatchScreen(
                 } }
                 if (editable && parent.hasMore) {
                     item { OutlinedButton(onMore, enabled = !state.busy) { Text("Discover next 50 items") } }
-                    item { OutlinedButton(onAnalyze, enabled = !state.busy) { Text("Analyze remaining playlist") } }
+                    item { OutlinedButton(onAnalyze, enabled = !state.busy) { Text(if (parent.collectionType == "SOCIAL_PROFILE") "Continue finding latest ${parent.requestedCount}" else "Analyze remaining playlist") } }
                 }
                 if (editable) item { Button(onEstimate, enabled = parent.selectedCount > 0 && !state.busy, modifier = Modifier.testTag("batch_review")) { Text("Review selected downloads") } }
                 else {
@@ -167,4 +184,21 @@ internal fun batchFormatLabel(choice: BatchFormatChoice): String = when (choice.
     DownloadMode.AUDIO_MP3 -> "MP3 ${choice.mp3BitrateKbps} kbps"
     DownloadMode.AUDIO_ORIGINAL -> "Native Audio"
     DownloadMode.VIDEO -> if (choice.maximumHeight == 0) "Video · Best available" else "Video · ${choice.maximumHeight}p"
+}
+
+@Composable
+internal fun ProfileCountDialog(busy: Boolean, onStart: (Int) -> Unit, onDismiss: () -> Unit, gatewayDisclosure: Boolean = false) {
+    var count by rememberSaveable { mutableStateOf(ProfileDiscoveryPolicy.DEFAULT_COUNT) }
+    var custom by rememberSaveable { mutableStateOf(false) }
+    var input by rememberSaveable { mutableStateOf("20") }
+    val requested = if (custom) input.toIntOrNull()?.takeIf { it in 1..100 } else count
+    AlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text("Choose latest posts") },
+        text = { Column {
+            Text("Public media posts only. Maximum 100; platform limits may return fewer.")
+            if (gatewayDisclosure) Text("TikTok tries direct discovery first. Your enabled third-party setting allows sending the username and page cursor to TikWM if needed. Origin cookies are never sent.")
+            ProfileDiscoveryPolicy.PRESETS.forEach { value -> FilterChip(!custom && count == value, { count = value; custom = false }, label = { Text("Latest $value") }, enabled = !busy) }
+            FilterChip(custom, { custom = true }, label = { Text("Custom") }, enabled = !busy)
+            if (custom) OutlinedTextField(input, { input = it.take(6) }, label = { Text("Posts (1–100)") }, isError = requested == null, singleLine = true, modifier = Modifier.testTag("profile_custom_count"))
+        } }, confirmButton = { TextButton({ requested?.let(onStart) }, enabled = requested != null && !busy, modifier = Modifier.testTag("profile_start")) { Text("Find posts") } },
+        dismissButton = { TextButton(onDismiss, enabled = !busy) { Text("Cancel") } })
 }

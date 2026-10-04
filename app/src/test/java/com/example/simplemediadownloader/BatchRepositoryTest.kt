@@ -271,4 +271,50 @@ class BatchRepositoryTest {
         assertTrue(db.batchDao().children(id).all { it.targetAudioBitrateKbps == 192 })
     }
 
+    @Test fun `profile latest N deduplicates pages stops exactly at N and persists native defaults`() = runBlocking {
+        var calls = 0
+        val profile = "https://www.tiktok.com/@teacher"
+        val http = ProfileHttpClient(okhttp3.OkHttpClient(), setOf("www.tiktok.com"), transport = ProfileTransport { source, _ ->
+            calls++
+            ProfileResponse(200, javaClass.getResource("/profiles/" + if (source.contains("/api/")) "tiktok-next.json" else "tiktok.html")!!.readText())
+        }, wait = {})
+        val manager = BatchRepository(db, downloads, CollectionExtractorRegistry(listOf(TikTokProfileExtractor(http))))
+        try { manager.create(profile); fail("Missing count accepted") } catch (_: IllegalArgumentException) {}
+        try { manager.create(profile, 101); fail("Oversized count accepted") } catch (_: IllegalArgumentException) {}
+        val id = manager.create(profile, 3)
+        manager.discoverRemaining(id)
+        val parent = db.batchDao().get(id)!!
+        assertEquals(3, parent.discoveredCount); assertEquals(3, parent.requestedCount)
+        assertFalse(parent.hasMore); assertEquals(3, parent.discoveryPage)
+        assertEquals("AUDIO_ORIGINAL", parent.downloadMode); assertFalse(parent.prefixOrder)
+        assertEquals(listOf("1", "2", "3"), manager.items(id).first().map { it.itemId })
+        assertEquals(listOf(0, 1, 2), manager.items(id).first().map { it.position })
+        val before = calls; manager.discoverNext(id); assertEquals(before, calls)
+        manager.select(id, null, true); manager.enqueue(id)
+        assertEquals(3, db.batchDao().children(id).size)
+        assertTrue(downloads.queuedRequests().all { it.batchId == id && it.format.mode == DownloadMode.AUDIO_ORIGINAL })
+        downloads.restoreRecoverableTasks()
+        assertEquals(before, calls) // Created children require no profile recrawl.
+    }
+
+    @Test fun `profile exhaustion reports actual public count and optional MP3 uses normal children`() = runBlocking {
+        val source = "https://www.tiktok.com/@teacher"
+        val extractor = object : CollectionExtractor {
+            override suspend fun canHandle(url: String) = true
+            override suspend fun getInfo(url: String) = CollectionInfo(url, "TikTok", CollectionType.SOCIAL_PROFILE, "Teacher")
+            override suspend fun getItems(url: String, limit: Int?, continuation: String?) = CollectionPage(listOf(CollectionItem("1", "https://www.tiktok.com/@teacher/video/1", "First", null, null, 300, 0)), null, false)
+        }
+        val manager = BatchRepository(db, downloads, CollectionExtractorRegistry(listOf(extractor)))
+        val id = manager.create(source, 20); manager.discoverRemaining(id)
+        assertTrue(db.batchDao().get(id)!!.discoveryNotice!!.contains("Only 1"))
+        manager.configure(id, BatchFormatChoice(DownloadMode.AUDIO_MP3, mp3BitrateKbps = 256), true, false)
+        manager.select(id, null, true)
+        assertEquals(9_600_000L, manager.estimate(id).knownBytes)
+        manager.enqueue(id)
+        val child = downloads.queuedRequests().single()
+        assertEquals(256, child.format.targetAudioBitrateKbps); assertEquals("mp3", child.format.outputExtension)
+        downloads.download(child)
+        assertEquals(BatchStatus.COMPLETED, manager.observe(id).first()!!.status)
+    }
+
 }

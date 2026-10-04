@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 data class BatchUiState(
+    val pendingProfileUrl: String? = null,
     val parents: List<BatchDownloadEntity> = emptyList(),
     val snapshot: BatchSnapshot? = null,
     val items: List<BatchItemEntity> = emptyList(),
@@ -29,14 +30,34 @@ class BatchViewModel(application: Application, private val savedState: SavedStat
     private var operation: Job? = null
     init {
         viewModelScope.launch { batches.batches.collect { list -> _state.update { it.copy(parents = list) } } }
+        _state.update { it.copy(pendingProfileUrl = savedState.get<String>("profileUrl")) }
         savedState.get<String>("batchId")?.let(::open)
     }
     fun initialize(url: String?) {
         if (url == null || savedState.get<String>("batchId") != null) return
+        if (SourceUrlClassifier.classify(url) == SourceUrlType.SOCIAL_PROFILE) {
+            savedState["profileUrl"] = url
+            _state.update { it.copy(pendingProfileUrl = url) }
+            return
+        }
         perform(discovery = true) {
             val id = batches.create(url)
             open(id)
             batches.discoverNext(id)
+        }
+    }
+    fun dismissProfileChoice() {
+        savedState.remove<String>("profileUrl")
+        _state.update { it.copy(pendingProfileUrl = null) }
+    }
+    fun startProfile(count: Int) {
+        val url = _state.value.pendingProfileUrl ?: return
+        perform(discovery = true) {
+            ProfileDiscoveryPolicy.validate(count)
+            val id = batches.create(url, count)
+            dismissProfileChoice()
+            open(id)
+            batches.discoverRemaining(id)
         }
     }
     fun open(id: String) {
@@ -98,7 +119,7 @@ class BatchViewModel(application: Application, private val savedState: SavedStat
         operation = viewModelScope.launch {
             try { block() }
             catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-            catch (error: Exception) { _state.update { it.copy(error = CredentialRedactor.redactDiagnostics(error.message) ?: "Could not update this batch") } }
+            catch (error: Exception) { _state.update { it.copy(error = if (_state.value.snapshot?.parent?.collectionType == CollectionType.SOCIAL_PROFILE.name) profileError(error) else CredentialRedactor.redactDiagnostics(error.message) ?: "Could not update this batch") } }
             finally { _state.update { it.copy(busy = false, discovering = false) } }
         }
     }

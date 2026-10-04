@@ -42,6 +42,22 @@ class DownloadDatabaseMigrationTest {
     )
 
     @Test
+    fun `migrate 8 to 9 preserves queued batch formats and supplies bounded legacy profile count`() {
+        helper.createDatabase(testDbName, 8).apply {
+            execSQL("""INSERT INTO download_batches (batch_id, source_url, platform, collection_type, discovered_count,
+                selected_count, created_at, status, has_more, download_mode, maximum_height, mp3_bitrate_kbps, skip_existing, prefix_order)
+                VALUES ('profile', 'https://tiktok.com/@teacher', 'TikTok', 'SOCIAL_PROFILE', 0, 0, 100, 'READY', 1, 'VIDEO', 720, 256, 1, 0)""")
+            close()
+        }
+        helper.runMigrationsAndValidate(testDbName, 9, true, DownloadDatabaseMigrations.MIGRATION_8_9).use { db ->
+            db.query("SELECT requested_count, discovery_page, discovery_notice, download_mode, maximum_height FROM download_batches").use {
+                assertTrue(it.moveToFirst()); assertEquals(20, it.getInt(0)); assertEquals(0, it.getInt(1)); assertTrue(it.isNull(2))
+                assertEquals("VIDEO", it.getString(3)); assertEquals(720, it.getInt(4))
+            }
+        }
+    }
+
+    @Test
     fun `migrate 7 to 8 preserves playlist selection cursor and existing format`() {
         helper.createDatabase(testDbName, 7).apply {
             execSQL("""INSERT INTO download_batches (batch_id, source_url, platform, collection_type,
