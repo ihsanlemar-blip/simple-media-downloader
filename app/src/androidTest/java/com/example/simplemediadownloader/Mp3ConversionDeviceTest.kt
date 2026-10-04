@@ -208,7 +208,7 @@ class Mp3ConversionDeviceTest {
             val source = fixture("tone.m4a", destination.directory)
             val output = File(destination.directory, "Tone.mp3")
             Mp3AudioTranscoder().transcode(source, output, 192, { false }) {}
-            exported = exporter.exportCompletedFile(request, destination, output.absolutePath).getOrThrow()
+            exported = exporter.exportCompletedFile(request, destination, OkHttpDownloadEngine.OUTPUT_MARKER + output.absolutePath).getOrThrow()
             assertEquals("audio/mpeg", exported.mimeType)
             assertEquals("01 - Tone.mp3", exported.displayName)
             context.contentResolver.query(Uri.parse(exported.contentUri), arrayOf(

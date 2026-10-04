@@ -87,7 +87,8 @@ child tasks. Completed media is inspected among the latest 20 matching records.
 
 Added: `BatchModels.kt`, `BatchPersistence.kt`, `CollectionDiscovery.kt`,
 `BatchRepository.kt`, `BatchViewModel.kt`, `BatchActivity.kt`, Room schema `7.json`,
-`BatchRepositoryTest.kt`, `BatchPolicyTest.kt`, `BatchDeviceTest.kt`, and this report.
+`BatchRepositoryTest.kt`, `BatchPolicyTest.kt`, `WorkingFileLocatorTest.kt`,
+`BatchDeviceTest.kt`, and this report.
 Updated: Room database/migrations/task DAO/entity/history store, normal request/task/
 record models, repository admission/recovery/cancellation, foreground service controls,
 MediaStore filename prefix, application wiring, main/share routing, migration tests,
@@ -96,8 +97,8 @@ metadata, native source, ABI, or workflow matrix changes.
 
 ## Local validation results
 
-- `:app:testDebugUnitTest`: PASS, 233 tests, zero failures/errors/skips. Fourteen
-  tests were added (ten repository/lifecycle, three policy, one migration).
+- `:app:testDebugUnitTest`: PASS, 234 tests, zero failures/errors/skips. Fifteen
+  tests were added (ten repository/lifecycle, three policy, one migration, one export-marker regression).
 - `:app:lintDebug`: PASS, zero errors, 52 warnings.
 - `:app:lintRelease`: PASS, zero errors, 52 warnings.
 - `:app:assembleDebug`: PASS.
@@ -116,3 +117,14 @@ fresh-process retry completed all build, unit and lint tasks successfully; logs 
 preserved at `/workspace/validation/batch`. The existing Android CI and Android
 Release Validation workflows, including API 29/33/35, remain unchanged. No GitHub
 Release or tag is created; workflow artifacts are build/test outputs only.
+
+## CI fixture correction
+
+The first pushed validation passed both build jobs and API 35, but API 29/33 exposed
+a nondeterministic fixture: its exporter call supplied a bare path instead of the
+engine's `OUTPUT_MARKER` contract. The fixture left both input M4A and encoded MP3
+in the workspace; identical millisecond modification times could select the input
+through the legacy fallback. The correction supplies the engine marker and adds an
+exact-timestamp regression test. Production file selection, source validation and
+MP3 validation are unchanged. Final workflow results are verified for the corrected
+commit and linked in the final response.
