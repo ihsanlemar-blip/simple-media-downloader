@@ -77,6 +77,10 @@ class DownloadService : Service() {
             }
         }
 
+        serviceScope.launch {
+            app.batchRepository.batches.collect { schedulePersistedQueue() }
+        }
+
         // Promotion happens before database or backend initialization work.
         ServiceCompat.startForeground(
             this,
@@ -135,6 +139,22 @@ class DownloadService : Service() {
 
     private suspend fun schedulePersistedQueue() = schedulingMutex.withLock {
         ensureRecovery()
+        // Reconcile batch controls before admitting children or handling Wi-Fi changes.
+        for (taskId in activeJobs.keys.toList()) {
+            val disposition = repository.batchDisposition(taskId)
+            val noLongerRunnable = repository.request(taskId) == null
+            if ((disposition != null && disposition !in setOf("QUEUED", "RUNNING")) || noLongerRunnable) {
+                val job = activeJobs[taskId]
+                if (disposition != null && disposition !in setOf("QUEUED", "RUNNING", "CANCELLED")) repository.pauseForBatch(taskId)
+                else repository.cancel(taskId)
+                job?.cancel()
+                job?.join() // Cleanup must finish before the same private workspace is reused.
+                activeJobs.remove(taskId, job)
+                scheduler.complete(taskId)
+            }
+        }
+        val eligible = repository.queuedRequests().map { it.id }.toSet()
+        scheduler.waitingTaskIds().filterNot { it in eligible }.forEach { scheduler.cancelWaiting(it) }
         val isAllowed = networkConnectivityManager.isNetworkAllowed(preferenceStore.wifiOnly.value)
 
         if (!isAllowed) {

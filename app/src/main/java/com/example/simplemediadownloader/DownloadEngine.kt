@@ -21,6 +21,10 @@ data class DownloadRequest(
     val title: String,
     val format: AvailableFormat,
     val author: String? = null,
+    val batchId: String? = null,
+    val batchIndex: Int? = null,
+    val sourceItemId: String? = null,
+    val filenamePrefix: String? = null,
 )
 
 sealed interface DownloadExecutionResult {
@@ -43,6 +47,7 @@ internal fun selectBestVideoFormat(
     catalog: MediaFormatCatalog,
     requestedHeight: Int,
     requestedKey: String? = null,
+    allowDownscale: Boolean = false,
 ): VideoMatchResult {
     val formats = catalog.videoFormats
     if (formats.isEmpty()) return VideoMatchResult.NoFormatsAvailable
@@ -64,6 +69,12 @@ internal fun selectBestVideoFormat(
 
     val higherOnly = formats.filter { it.height > requestedHeight }
     if (higherOnly.isNotEmpty()) {
+        if (allowDownscale) {
+            val source = higherOnly.minBy { it.height }
+            return VideoMatchResult.Match(source.copy(height = requestedHeight, sourceHeight = source.height,
+                width = ((source.width.toLong() * requestedHeight / source.height).toInt() / 2) * 2,
+                requiresDownscale = true, key = requestedKey ?: source.key))
+        }
         val availableHeights = higherOnly.map { it.height }.distinct().sorted()
         return VideoMatchResult.OnlyHigherResolutionsExist(requestedHeight, availableHeights)
     }
@@ -216,7 +227,7 @@ class OkHttpDownloadEngine(
                         resolvedTitle = discoveredTitle
                     }
                     val matching = if (request.format.mode == DownloadMode.VIDEO) {
-                        when (val match = selectBestVideoFormat(discovery.catalog, request.format.height, request.format.key)) {
+                        when (val match = selectBestVideoFormat(discovery.catalog, request.format.height, request.format.key, request.format.requiresDownscale)) {
                             is VideoMatchResult.Match -> match.format
                             is VideoMatchResult.OnlyHigherResolutionsExist -> {
                                 return@withContext DownloadExecutionResult.Failure(
@@ -254,7 +265,7 @@ class OkHttpDownloadEngine(
                     val discovery = discoveryEngine?.discoverFormats(request.url)
                     if (discovery is FormatDiscoveryResult.Success) {
                         val matching = if (resolvedFormat.mode == DownloadMode.VIDEO) {
-                            when (val match = selectBestVideoFormat(discovery.catalog, resolvedFormat.height, resolvedFormat.key)) {
+                            when (val match = selectBestVideoFormat(discovery.catalog, resolvedFormat.height, resolvedFormat.key, resolvedFormat.requiresDownscale)) {
                                 is VideoMatchResult.Match -> match.format
                                 else -> null
                             }
@@ -507,7 +518,7 @@ class OkHttpDownloadEngine(
                         val freshDiscovery = discoveryEngine.discoverFormats(request.url)
                         if (freshDiscovery is FormatDiscoveryResult.Success) {
                             val freshMatching = if (resolvedFormat.mode == DownloadMode.VIDEO) {
-                                when (val match = selectBestVideoFormat(freshDiscovery.catalog, resolvedFormat.height, resolvedFormat.key)) {
+                                when (val match = selectBestVideoFormat(freshDiscovery.catalog, resolvedFormat.height, resolvedFormat.key, resolvedFormat.requiresDownscale)) {
                                     is VideoMatchResult.Match -> match.format
                                     else -> null
                                 }

@@ -20,6 +20,8 @@ class SimpleMediaDownloaderApp : Application() {
     val backendState = backendInitialization.state
     lateinit var downloadDatabase: DownloadDatabase
         private set
+    lateinit var batchRepository: BatchRepository
+        private set
     lateinit var downloadRepository: DownloadRepository
         internal set
     lateinit var downloadPreferenceStore: DownloadPreferenceStore
@@ -59,6 +61,9 @@ class SimpleMediaDownloaderApp : Application() {
             ),
             storageExporter = exporter,
         )
+        batchRepository = BatchRepository(downloadDatabase, downloadRepository,
+            CollectionExtractorRegistry(listOf(YouTubeCollectionExtractor(dispatchers))),
+            availableBytes = { runCatching { android.os.StatFs(cacheDir.absolutePath).availableBytes }.getOrNull() })
         DownloadNotifier.createChannel(this)
     }
 

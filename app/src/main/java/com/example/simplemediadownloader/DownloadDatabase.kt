@@ -7,12 +7,13 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 
 @Database(
-    entities = [DownloadTaskEntity::class],
-    version = 6,
+    entities = [DownloadTaskEntity::class, BatchDownloadEntity::class, BatchItemEntity::class],
+    version = 7,
     exportSchema = true,
 )
 abstract class DownloadDatabase : RoomDatabase() {
     abstract fun downloadTaskDao(): DownloadTaskDao
+    abstract fun batchDao(): BatchDao
 
     companion object {
         private const val DATABASE_NAME = "downloads.db"
@@ -90,5 +91,28 @@ object DownloadDatabaseMigrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+    val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE download_tasks ADD COLUMN batch_id TEXT")
+            database.execSQL("ALTER TABLE download_tasks ADD COLUMN batch_index INTEGER")
+            database.execSQL("ALTER TABLE download_tasks ADD COLUMN source_item_id TEXT")
+            database.execSQL("ALTER TABLE download_tasks ADD COLUMN filename_prefix TEXT")
+            database.execSQL("CREATE INDEX index_download_tasks_batch_id ON download_tasks (batch_id)")
+            database.execSQL("CREATE INDEX index_download_tasks_batch_id_batch_index ON download_tasks (batch_id, batch_index)")
+            database.execSQL("""CREATE TABLE IF NOT EXISTS download_batches (
+                batch_id TEXT NOT NULL PRIMARY KEY, source_url TEXT NOT NULL, platform TEXT NOT NULL,
+                collection_type TEXT NOT NULL, title TEXT, requested_count INTEGER, discovered_count INTEGER NOT NULL,
+                selected_count INTEGER NOT NULL, created_at INTEGER NOT NULL, status TEXT NOT NULL, continuation TEXT,
+                has_more INTEGER NOT NULL, download_mode TEXT NOT NULL, maximum_height INTEGER NOT NULL,
+                mp3_bitrate_kbps INTEGER NOT NULL, skip_existing INTEGER NOT NULL, prefix_order INTEGER NOT NULL, error TEXT)""")
+            database.execSQL("""CREATE TABLE IF NOT EXISTS batch_items (
+                batch_id TEXT NOT NULL, item_id TEXT NOT NULL, url TEXT NOT NULL, title TEXT, author TEXT,
+                thumbnail_url TEXT, duration_seconds INTEGER, position INTEGER NOT NULL, selected INTEGER NOT NULL,
+                child_task_id TEXT, skip_reason TEXT, PRIMARY KEY(batch_id, item_id),
+                FOREIGN KEY(batch_id) REFERENCES download_batches(batch_id) ON DELETE CASCADE)""")
+            database.execSQL("CREATE INDEX index_batch_items_batch_id_position ON batch_items(batch_id, position)")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
 }

@@ -1,0 +1,563 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 7,
+    "identityHash": "97afe4fc9247943ca581ee0d0efdb3e8",
+    "entities": [
+      {
+        "tableName": "download_tasks",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`task_id` TEXT NOT NULL, `source_url` TEXT NOT NULL, `canonical_url` TEXT NOT NULL, `display_title` TEXT NOT NULL, `platform` TEXT NOT NULL, `format_key` TEXT NOT NULL, `format_id` TEXT NOT NULL, `companion_audio_format_id` TEXT, `download_mode` TEXT NOT NULL, `file_extension` TEXT NOT NULL, `width` INTEGER NOT NULL, `height` INTEGER NOT NULL, `fps` INTEGER NOT NULL, `bitrate_kbps` INTEGER NOT NULL, `codec` TEXT NOT NULL, `format_note` TEXT NOT NULL, `estimated_size_bytes` INTEGER, `size_is_approximate` INTEGER NOT NULL, `source_height` INTEGER NOT NULL, `requires_downscale` INTEGER NOT NULL, `is_quick_preset` INTEGER NOT NULL, `status` TEXT NOT NULL, `processing_stage` TEXT NOT NULL, `progress_percent` REAL, `downloaded_bytes` INTEGER, `total_bytes` INTEGER, `speed_bytes_per_second` INTEGER, `eta_seconds` INTEGER, `output_content_uri` TEXT, `output_mime_type` TEXT, `output_file_size_bytes` INTEGER, `output_display_name` TEXT, `created_at` INTEGER NOT NULL, `started_at` INTEGER, `completed_at` INTEGER, `failure_category` TEXT, `failure_message` TEXT, `technical_failure_detail` TEXT, `http_headers` TEXT, `author` TEXT, `source_extension` TEXT NOT NULL DEFAULT '', `target_audio_bitrate_kbps` INTEGER NOT NULL DEFAULT 0, `duration_seconds` INTEGER, `source_size_bytes` INTEGER, `batch_id` TEXT, `batch_index` INTEGER, `source_item_id` TEXT, `filename_prefix` TEXT, PRIMARY KEY(`task_id`))",
+        "fields": [
+          {
+            "fieldPath": "taskId",
+            "columnName": "task_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceUrl",
+            "columnName": "source_url",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canonicalUrl",
+            "columnName": "canonical_url",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayTitle",
+            "columnName": "display_title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "platform",
+            "columnName": "platform",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "formatKey",
+            "columnName": "format_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "formatId",
+            "columnName": "format_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "companionAudioFormatId",
+            "columnName": "companion_audio_format_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "downloadMode",
+            "columnName": "download_mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileExtension",
+            "columnName": "file_extension",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "width",
+            "columnName": "width",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "height",
+            "columnName": "height",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fps",
+            "columnName": "fps",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bitrateKbps",
+            "columnName": "bitrate_kbps",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "codec",
+            "columnName": "codec",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "formatNote",
+            "columnName": "format_note",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "estimatedSizeBytes",
+            "columnName": "estimated_size_bytes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sizeIsApproximate",
+            "columnName": "size_is_approximate",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceHeight",
+            "columnName": "source_height",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "requiresDownscale",
+            "columnName": "requires_downscale",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isQuickPreset",
+            "columnName": "is_quick_preset",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "processingStage",
+            "columnName": "processing_stage",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "progressPercent",
+            "columnName": "progress_percent",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "downloadedBytes",
+            "columnName": "downloaded_bytes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "totalBytes",
+            "columnName": "total_bytes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "speedBytesPerSecond",
+            "columnName": "speed_bytes_per_second",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "etaSeconds",
+            "columnName": "eta_seconds",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "outputContentUri",
+            "columnName": "output_content_uri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "outputMimeType",
+            "columnName": "output_mime_type",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "outputFileSizeBytes",
+            "columnName": "output_file_size_bytes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "outputDisplayName",
+            "columnName": "output_display_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAt",
+            "columnName": "started_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "completedAt",
+            "columnName": "completed_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "failureCategory",
+            "columnName": "failure_category",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "failureMessage",
+            "columnName": "failure_message",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "technicalFailureDetail",
+            "columnName": "technical_failure_detail",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "httpHeaders",
+            "columnName": "http_headers",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "author",
+            "columnName": "author",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceExtension",
+            "columnName": "source_extension",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "targetAudioBitrateKbps",
+            "columnName": "target_audio_bitrate_kbps",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "durationSeconds",
+            "columnName": "duration_seconds",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sourceSizeBytes",
+            "columnName": "source_size_bytes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "batchId",
+            "columnName": "batch_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "batchIndex",
+            "columnName": "batch_index",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sourceItemId",
+            "columnName": "source_item_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "filenamePrefix",
+            "columnName": "filename_prefix",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "task_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_download_tasks_status_created_at",
+            "unique": false,
+            "columnNames": [
+              "status",
+              "created_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_download_tasks_status_created_at` ON `${TABLE_NAME}` (`status`, `created_at`)"
+          },
+          {
+            "name": "index_download_tasks_completed_at",
+            "unique": false,
+            "columnNames": [
+              "completed_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_download_tasks_completed_at` ON `${TABLE_NAME}` (`completed_at`)"
+          },
+          {
+            "name": "index_download_tasks_canonical_url",
+            "unique": false,
+            "columnNames": [
+              "canonical_url"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_download_tasks_canonical_url` ON `${TABLE_NAME}` (`canonical_url`)"
+          },
+          {
+            "name": "index_download_tasks_author",
+            "unique": false,
+            "columnNames": [
+              "author"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_download_tasks_author` ON `${TABLE_NAME}` (`author`)"
+          },
+          {
+            "name": "index_download_tasks_batch_id",
+            "unique": false,
+            "columnNames": [
+              "batch_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_download_tasks_batch_id` ON `${TABLE_NAME}` (`batch_id`)"
+          },
+          {
+            "name": "index_download_tasks_batch_id_batch_index",
+            "unique": false,
+            "columnNames": [
+              "batch_id",
+              "batch_index"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_download_tasks_batch_id_batch_index` ON `${TABLE_NAME}` (`batch_id`, `batch_index`)"
+          }
+        ]
+      },
+      {
+        "tableName": "download_batches",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`batch_id` TEXT NOT NULL, `source_url` TEXT NOT NULL, `platform` TEXT NOT NULL, `collection_type` TEXT NOT NULL, `title` TEXT, `requested_count` INTEGER, `discovered_count` INTEGER NOT NULL, `selected_count` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `status` TEXT NOT NULL, `continuation` TEXT, `has_more` INTEGER NOT NULL, `download_mode` TEXT NOT NULL, `maximum_height` INTEGER NOT NULL, `mp3_bitrate_kbps` INTEGER NOT NULL, `skip_existing` INTEGER NOT NULL, `prefix_order` INTEGER NOT NULL, `error` TEXT, PRIMARY KEY(`batch_id`))",
+        "fields": [
+          {
+            "fieldPath": "batchId",
+            "columnName": "batch_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceUrl",
+            "columnName": "source_url",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "platform",
+            "columnName": "platform",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "collectionType",
+            "columnName": "collection_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "requestedCount",
+            "columnName": "requested_count",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "discoveredCount",
+            "columnName": "discovered_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "selectedCount",
+            "columnName": "selected_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "continuation",
+            "columnName": "continuation",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "hasMore",
+            "columnName": "has_more",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "downloadMode",
+            "columnName": "download_mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "maximumHeight",
+            "columnName": "maximum_height",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mp3BitrateKbps",
+            "columnName": "mp3_bitrate_kbps",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "skipExisting",
+            "columnName": "skip_existing",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "prefixOrder",
+            "columnName": "prefix_order",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "error",
+            "columnName": "error",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "batch_id"
+          ]
+        }
+      },
+      {
+        "tableName": "batch_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`batch_id` TEXT NOT NULL, `item_id` TEXT NOT NULL, `url` TEXT NOT NULL, `title` TEXT, `author` TEXT, `thumbnail_url` TEXT, `duration_seconds` INTEGER, `position` INTEGER NOT NULL, `selected` INTEGER NOT NULL, `child_task_id` TEXT, `skip_reason` TEXT, PRIMARY KEY(`batch_id`, `item_id`), FOREIGN KEY(`batch_id`) REFERENCES `download_batches`(`batch_id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "batchId",
+            "columnName": "batch_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemId",
+            "columnName": "item_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "url",
+            "columnName": "url",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "author",
+            "columnName": "author",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "thumbnailUrl",
+            "columnName": "thumbnail_url",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "durationSeconds",
+            "columnName": "duration_seconds",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "position",
+            "columnName": "position",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "selected",
+            "columnName": "selected",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "childTaskId",
+            "columnName": "child_task_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "skipReason",
+            "columnName": "skip_reason",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "batch_id",
+            "item_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_batch_items_batch_id_position",
+            "unique": false,
+            "columnNames": [
+              "batch_id",
+              "position"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_batch_items_batch_id_position` ON `${TABLE_NAME}` (`batch_id`, `position`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "download_batches",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "batch_id"
+            ],
+            "referencedColumns": [
+              "batch_id"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '97afe4fc9247943ca581ee0d0efdb3e8')"
+    ]
+  }
+}

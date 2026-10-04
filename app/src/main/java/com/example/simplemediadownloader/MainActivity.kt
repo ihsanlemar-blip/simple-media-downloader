@@ -105,6 +105,13 @@ private fun MainAppScaffold(
     var pendingRemoveId by remember { mutableStateOf<String?>(null) }
     var pendingDeleteId by remember { mutableStateOf<String?>(null) }
 
+    LaunchedEffect(state.collectionUrl) {
+        state.collectionUrl?.let { url ->
+            context.startActivity(Intent(context, BatchActivity::class.java).putExtra(BatchActivity.EXTRA_SOURCE_URL, url))
+            viewModel.consumeCollectionUrl()
+        }
+    }
+
     LaunchedEffect(state.message) {
         state.message?.let {
             snackbarHostState.showSnackbar(it)
@@ -116,6 +123,7 @@ private fun MainAppScaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
+                actions = { TextButton(onClick = { context.startActivity(Intent(context, BatchActivity::class.java)) }) { Text("Batches") } },
                 title = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,

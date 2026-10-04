@@ -35,6 +35,7 @@ enum class VaultMediaType(val label: String) {
 data class MainUiState(
     val currentTab: NavigationTab = NavigationTab.GATEWAY,
     val url: String = "",
+    val collectionUrl: String? = null,
     val backend: BackendState = BackendState(),
     val isDiscoveringFormats: Boolean = false,
     val formatCatalog: MediaFormatCatalog? = null,
@@ -402,6 +403,7 @@ class MainViewModel @JvmOverloads constructor(
     fun fastDownload() {
         val snapshot = _uiState.value
         val url = validCurrentUrl() ?: return
+        if (routeCollection(url)) return
         val choice = snapshot.defaultDownloadChoice
         if (choice == DefaultDownloadChoice.ALWAYS_ASK) {
             showQuickFormatsAndDiscover(url)
@@ -583,7 +585,15 @@ class MainViewModel @JvmOverloads constructor(
         }
     }
 
+    fun consumeCollectionUrl() { _uiState.update { it.copy(collectionUrl = null) } }
+    private fun routeCollection(url: String): Boolean {
+        if (SourceUrlClassifier.classify(url) !in setOf(SourceUrlType.YOUTUBE_PLAYLIST, SourceUrlType.SOCIAL_PROFILE)) return false
+        _uiState.update { it.copy(collectionUrl = url, showFormatPicker = false) }
+        return true
+    }
+
     private fun showQuickFormatsAndDiscover(url: String) {
+        if (routeCollection(url)) return
         val generation = ++discoveryGeneration
         val cached = repository.cachedFormatCatalog(url)
         val initialCatalog = cached ?: repository.quickFormatCatalog(url)

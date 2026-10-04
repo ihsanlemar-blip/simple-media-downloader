@@ -42,6 +42,30 @@ class DownloadDatabaseMigrationTest {
     )
 
     @Test
+    fun `migrate 6 to 7 preserves single downloads and creates indexed batch tables`() {
+        helper.createDatabase(testDbName, 6).apply {
+            execSQL("""INSERT INTO download_tasks (
+                task_id, source_url, canonical_url, display_title, platform, format_key, format_id,
+                download_mode, file_extension, width, height, fps, bitrate_kbps, codec, format_note,
+                size_is_approximate, source_height, requires_downscale, is_quick_preset,
+                status, processing_stage, created_at, source_extension, target_audio_bitrate_kbps
+            ) VALUES ('single-v6', 'https://example.com/watch', 'https://example.com/watch', 'Tone',
+                'YouTube', 'mp3-192', 'https://example.com/tone.m4a', 'AUDIO_MP3', 'mp3',
+                0, 0, 0, 192, 'mp3', '', 1, 0, 0, 0, 'COMPLETED', 'COMPLETED', 100, 'm4a', 192)""")
+            close()
+        }
+        helper.runMigrationsAndValidate(testDbName, 7, true, DownloadDatabaseMigrations.MIGRATION_6_7).use { db ->
+            db.query("SELECT batch_id, batch_index, source_item_id, download_mode, target_audio_bitrate_kbps FROM download_tasks WHERE task_id = 'single-v6'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertTrue(cursor.isNull(0)); assertTrue(cursor.isNull(1)); assertTrue(cursor.isNull(2))
+                assertEquals("AUDIO_MP3", cursor.getString(3)); assertEquals(192, cursor.getInt(4))
+            }
+            db.query("SELECT COUNT(*) FROM download_batches").use { assertTrue(it.moveToFirst()); assertEquals(0, it.getInt(0)) }
+            db.query("SELECT COUNT(*) FROM batch_items").use { assertTrue(it.moveToFirst()); assertEquals(0, it.getInt(0)) }
+        }
+    }
+
+    @Test
     fun `migrate 5 to 6 preserves legacy native MP3 source intent`() {
         helper.createDatabase(testDbName, 5).apply {
             execSQL("""INSERT INTO download_tasks (

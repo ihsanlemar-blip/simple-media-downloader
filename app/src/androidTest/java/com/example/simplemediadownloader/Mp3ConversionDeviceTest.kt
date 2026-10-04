@@ -148,7 +148,7 @@ class Mp3ConversionDeviceTest {
                 "https://example.test/audio", extension = "m4a"), 192, 2)
             val engine = OkHttpDownloadEngine(client = client, enforceSecurityPolicy = false)
             val states = mutableListOf<DownloadState>()
-            val request = DownloadRequest("success", "https://example.test/watch", "Tone", format)
+            val request = DownloadRequest("success", "https://example.test/watch", "Tone", format, batchId = "batch-device", batchIndex = 0, sourceItemId = "tone")
             val result = engine.download(request, dir) { states.add(it) }
             assertTrue(result is DownloadExecutionResult.Success)
             val firstConversion = states.indexOfFirst { it is DownloadState.Converting }
@@ -157,6 +157,13 @@ class Mp3ConversionDeviceTest {
             assertFalse(states.any { it is DownloadState.Completed })
             assertEquals(listOf("Tone.mp3"), dir.listFiles()!!.map { it.name })
             assertDecodable(File(dir, "Tone.mp3"))
+            dir.listFiles()!!.forEach { it.delete() }
+            val nativeStates = mutableListOf<DownloadState>()
+            val nativeResult = engine.download(request.copy(id = "native-child", format = format.copy(
+                mode = DownloadMode.AUDIO_ORIGINAL, extension = "m4a", targetAudioBitrateKbps = 0)), dir) { nativeStates.add(it) }
+            assertTrue(nativeResult is DownloadExecutionResult.Success)
+            assertFalse(nativeStates.any { it is DownloadState.Converting })
+            assertArrayEquals(payload, File(dir, "Tone.m4a").readBytes())
             dir.listFiles()!!.forEach { it.delete() }
             val cancelled = engine.download(request.copy(id = "cancel"), dir) {
                 if (it is DownloadState.Converting && (it.progress.percentage ?: 0f) >= 20f) {
@@ -194,7 +201,7 @@ class Mp3ConversionDeviceTest {
         val exporter = DownloadsStorageExporter(context, workspaceRoot = dir)
         val format = AudioFormatOptions.mp3(AvailableFormat("aac", DownloadMode.AUDIO_ORIGINAL,
             "https://example.test/audio", extension = "m4a"), 192, 2)
-        val request = DownloadRequest("export-${System.nanoTime()}", "https://example.test/watch", "Tone", format)
+        val request = DownloadRequest("export-${System.nanoTime()}", "https://example.test/watch", "Tone", format, batchId = "batch-device", batchIndex = 0, filenamePrefix = "01 - ")
         val destination = exporter.prepareDestination(request).getOrThrow()
         var exported: DownloadOutput? = null
         try {
@@ -203,7 +210,7 @@ class Mp3ConversionDeviceTest {
             Mp3AudioTranscoder().transcode(source, output, 192, { false }) {}
             exported = exporter.exportCompletedFile(request, destination, output.absolutePath).getOrThrow()
             assertEquals("audio/mpeg", exported.mimeType)
-            assertEquals("Tone.mp3", exported.displayName)
+            assertEquals("01 - Tone.mp3", exported.displayName)
             context.contentResolver.query(Uri.parse(exported.contentUri), arrayOf(
                 MediaStore.MediaColumns.MIME_TYPE, MediaStore.MediaColumns.RELATIVE_PATH,
                 MediaStore.MediaColumns.IS_PENDING), null, null, null)!!.use { cursor ->

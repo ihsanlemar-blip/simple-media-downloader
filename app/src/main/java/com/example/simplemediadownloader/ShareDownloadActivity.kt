@@ -65,7 +65,13 @@ class ShareDownloadActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         configureDialogWindow()
-        viewModel.initialize(ShareIntentParser.parse(intent))
+        val parsed = ShareIntentParser.parse(intent)
+        if (parsed is SharedUrlResult.Valid && SourceUrlClassifier.classify(parsed.url) in setOf(SourceUrlType.YOUTUBE_PLAYLIST, SourceUrlType.SOCIAL_PROFILE)) {
+            startActivity(android.content.Intent(this, BatchActivity::class.java).putExtra(BatchActivity.EXTRA_SOURCE_URL, parsed.url))
+            finishAndRemoveTask()
+            return
+        }
+        viewModel.initialize(parsed)
         setContent {
             SimpleMediaDownloaderTheme {
                 val state by viewModel.uiState.collectAsStateWithLifecycle()

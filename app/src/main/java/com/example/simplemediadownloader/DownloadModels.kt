@@ -221,6 +221,9 @@ data class DownloadTask(
     val createdAt: Long = 0L,
     val startedAt: Long? = null,
     val completedAt: Long? = null,
+    val batchId: String? = null,
+    val batchIndex: Int? = null,
+    val sourceItemId: String? = null,
 ) {
     val progress: DownloadProgress get() = state.progress
     val result: DownloadResult? get() = state.result

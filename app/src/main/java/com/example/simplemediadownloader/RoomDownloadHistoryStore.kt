@@ -41,6 +41,10 @@ class RoomDownloadHistoryStore(
         ) > 0
     }
 
+    override suspend fun cancelCancelledBatchChildren(): Int = withContext(dispatchers.io) { dao.cancelCancelledBatchChildren() }
+
+    override suspend fun batchDisposition(taskId: String): String? = withContext(dispatchers.io) { dao.batchDisposition(taskId) }
+
     override suspend fun get(taskId: String): DownloadRecord? = withContext(dispatchers.io) {
         dao.get(taskId)?.toRecord()
     }

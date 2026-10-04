@@ -48,6 +48,10 @@ data class DownloadRecord(
     val failureCategory: DownloadFailureCategory?,
     val failureMessage: String?,
     val technicalFailureDetail: String?,
+    val batchId: String? = null,
+    val batchIndex: Int? = null,
+    val sourceItemId: String? = null,
+    val filenamePrefix: String? = null,
 ) {
     fun toTask(): DownloadTask = DownloadTask(
         id = taskId,
@@ -57,6 +61,7 @@ data class DownloadRecord(
         state = toDownloadState(),
         platform = platform,
         author = author,
+        batchId = batchId, batchIndex = batchIndex, sourceItemId = sourceItemId,
         createdAt = createdAt,
         startedAt = startedAt,
         completedAt = completedAt,
@@ -144,6 +149,8 @@ interface DownloadHistoryStore {
         )
         return true
     }
+    suspend fun cancelCancelledBatchChildren(): Int = 0
+    suspend fun batchDisposition(taskId: String): String? = null
     suspend fun get(taskId: String): DownloadRecord?
     suspend fun recoverRunningTasks(interruptedAt: Long, technicalDetail: String): Int
     suspend fun interruptTask(taskId: String, interruptedAt: Long, technicalDetail: String): Boolean

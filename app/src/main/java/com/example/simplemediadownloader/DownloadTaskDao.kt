@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface DownloadTaskDao {
+    @Query("SELECT b.status FROM download_tasks t JOIN download_batches b ON t.batch_id = b.batch_id WHERE t.task_id = :taskId")
+    suspend fun batchDisposition(taskId: String): String?
+
     @Query(
         """SELECT * FROM download_tasks
            WHERE status IN ('QUEUED', 'RUNNING')
@@ -142,6 +145,11 @@ interface DownloadTaskDao {
         technicalDetail: String,
     ): Int
 
+    @Query("""UPDATE download_tasks SET status = 'CANCELLED', processing_stage = 'CANCELLED'
+        WHERE status IN ('QUEUED', 'RUNNING', 'INTERRUPTED') AND batch_id IN
+        (SELECT batch_id FROM download_batches WHERE status = 'CANCELLED')""")
+    suspend fun cancelCancelledBatchChildren(): Int
+
     @Query("SELECT * FROM download_tasks WHERE status = 'INTERRUPTED'")
     suspend fun getInterruptedTasks(): List<DownloadTaskEntity>
 
@@ -184,6 +192,10 @@ interface DownloadTaskDao {
         return requeued
     }
 
+    @Query("""UPDATE download_batches SET status = 'QUEUED' WHERE status = 'CANCELLED'
+        AND batch_id = (SELECT batch_id FROM download_tasks WHERE task_id = :taskId)""")
+    suspend fun reopenCancelledBatchForExplicitRetry(taskId: String): Int
+
     @Transaction
     suspend fun retry(taskId: String): Int {
         val task = get(taskId) ?: return 0
@@ -198,7 +210,9 @@ interface DownloadTaskDao {
         if (countActiveDuplicate(canonical, task.formatKey) > 0) {
             return 0
         }
-        return resetToQueued(taskId)
+        val updated = resetToQueued(taskId)
+        if (updated > 0) reopenCancelledBatchForExplicitRetry(taskId)
+        return updated
     }
 
     @Query(

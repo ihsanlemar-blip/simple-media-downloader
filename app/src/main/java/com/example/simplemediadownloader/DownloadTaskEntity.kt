@@ -12,6 +12,8 @@ import androidx.room.PrimaryKey
         Index(value = ["completed_at"]),
         Index(value = ["canonical_url"]),
         Index(value = ["author"]),
+        Index(value = ["batch_id"]),
+        Index(value = ["batch_id", "batch_index"]),
     ],
 )
 data class DownloadTaskEntity(
@@ -59,6 +61,10 @@ data class DownloadTaskEntity(
     @ColumnInfo(name = "target_audio_bitrate_kbps", defaultValue = "0") val targetAudioBitrateKbps: Int = 0,
     @ColumnInfo(name = "duration_seconds") val durationSeconds: Long? = null,
     @ColumnInfo(name = "source_size_bytes") val sourceSizeBytes: Long? = null,
+    @ColumnInfo(name = "batch_id") val batchId: String? = null,
+    @ColumnInfo(name = "batch_index") val batchIndex: Int? = null,
+    @ColumnInfo(name = "source_item_id") val sourceItemId: String? = null,
+    @ColumnInfo(name = "filename_prefix") val filenamePrefix: String? = null,
 )
 
 object CredentialRedactor {
@@ -166,6 +172,7 @@ fun DownloadRecord.toEntity(): DownloadTaskEntity {
         technicalFailureDetail = sanitizedTechnicalDetail,
         httpHeaders = serializeHeaders(sanitizedHeaders),
         author = author,
+        batchId = batchId, batchIndex = batchIndex, sourceItemId = sourceItemId, filenamePrefix = filenamePrefix,
     )
 }
 
@@ -175,6 +182,7 @@ fun DownloadTaskEntity.toRecord(): DownloadRecord = DownloadRecord(
     displayTitle = displayTitle,
     platform = platform,
     author = author,
+    batchId = batchId, batchIndex = batchIndex, sourceItemId = sourceItemId, filenamePrefix = filenamePrefix,
     format = AvailableFormat(
         key = formatKey,
         mode = enumValueOrDefault(downloadMode, DownloadMode.VIDEO),

@@ -5,7 +5,7 @@
 
 > 📦 **Downloads & Releases**:
 > * **Last Published Release**: [v2.5.0 on GitHub Releases](https://github.com/ihsanlemar-blip/simple-media-downloader/releases/tag/v2.5.0) ([SimpleMediaDownloader-v2.5.0-universal.apk](https://github.com/ihsanlemar-blip/simple-media-downloader/releases/download/v2.5.0/SimpleMediaDownloader-v2.5.0-universal.apk)).
-> * **Current Source (`main`)**: Version 2.6.0 (versionCode 260) adds universal MP3 conversion and platform audio defaults, alongside the subsequent reliability, security, and verification fixes. This source version has not been published as a GitHub Release. To run the latest code, build from source following the [Building](#building) instructions below.
+> * **Current Source (`main`)**: Version 2.6.0 (versionCode 260) adds universal MP3 conversion, platform audio defaults, and reusable batch collection management, alongside the subsequent reliability, security, and verification fixes. This source version has not been published as a GitHub Release. To run the latest code, build from source following the [Building](#building) instructions below.
 
 Simple Media Downloader is a flagship Kotlin and Jetpack Compose Android application for saving publicly accessible media from TikTok, Instagram Reels, Facebook, YouTube, X (Twitter), and Reddit with full metadata and original title preservation. Format extraction runs on-device using TeamNewPipe's NewPipeExtractor alongside specialized direct network scrapers. Media streams are downloaded with OkHttp (featuring RFC 7233 range-request validation, automatic continuous fallback, and destination security policies), and audio/video track merging and extraction are processed natively on-device using platform `android.media.MediaMuxer`, `MediaExtractor`, and `MediaCodec` APIs with bundled libmp3lame for real MP3 encoding and no external processing runtimes. In-app media preview playback is powered by AndroidX Media3 (ExoPlayer and UI).
 
@@ -248,3 +248,51 @@ Native Audio remains separately selectable; already queued tasks are unaffected.
 
 LAME source/version, archive hash, license, and shared-library build details:
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+### Batch collections
+
+Batch download support organizes normal download tasks; it does not introduce another
+network downloader. The flow is `CollectionExtractor → BatchRepository → DownloadRequest
+→ DownloadRepository → DownloadService → DownloadEngine`. The existing native audio,
+MP3, muxing, ranged HTTP, MediaStore and cancellation paths handle every child.
+
+Paste or share a YouTube playlist link to open the collection preview. Discover more
+items incrementally, select individual items or all discovered items, choose one
+format, then review duplicates and the estimated total before confirming. The Batches
+button opens saved previews and batch controls. Video choices are best available,
+1080p, 720p and 480p; a lower available resolution is accepted, and an existing
+video downscale path handles a source available only above the chosen cap. Audio
+choices are Native Audio and MP3 128/192/256/320. Selecting Audio applies the same
+platform defaults: YouTube MP3 with the configured bitrate (192 initially), other
+platforms Native Audio.
+
+YouTube playlist discovery uses the existing NewPipe networking adapter. Typed,
+pasted and shared profile links use the same classifier and collection entry point,
+but social-profile discovery adapters are not yet supplied. These links show an
+explicit unsupported-collection message; an individual media URL remains usable.
+`CollectionExtractor` and `CollectionExtractorRegistry` provide the extension point
+for future profile and other collection adapters, without adding download engines.
+
+Room schema 7 adds durable batch parents, paged discovery items, selection and
+continuation cursors, and optional batch identity/order/source-item fields on normal
+tasks. Migration 6→7 preserves existing task data and MP3 intent. Paused parents
+exclude their queued children from admission; active work is cancelled, cleaned up,
+and requeued for a full restart on resume. Recovery uses the existing interruption
+logic and cannot admit paused or cancelled batches. Child counts derive from SQL
+aggregates rather than persisted copies of progress. A preview interrupted during
+child preparation retains its format/selection and can finish preparing safely.
+
+Duplicate checks use canonical media URL plus the normal format key. Already queued
+items are always skipped; completed items are skipped by default with an explicit
+re-download option. MP3 estimates use duration × target bitrate. Other estimates use
+normal catalog sizes, and unknown items remain separately counted. Storage preflight
+allows twice the known output estimate plus 64 MiB for temporary data; unknown sizes
+never automatically block confirmation. Actual per-item storage checks still apply.
+
+Playlist filenames are numbered by default (`01 - Title.mp3`); profiles default to
+unnumbered names. Existing sanitization and collision handling remain in charge.
+Batch controls pause, resume, cancel and retry failed children. Cancel keeps completed
+media. Deleting batch history detaches retained children and keeps media and individual
+history; individual cancel/retry/open/share/delete actions remain in Transfers/Vault.
+Batch work uses the user's existing network concurrency setting (it never increases
+it), one collection discovery operation, and the existing single MP3 conversion slot.

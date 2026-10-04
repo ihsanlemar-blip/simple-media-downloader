@@ -109,7 +109,7 @@ internal class DownloadsStorageExporter(
                 )
             val actualExtension = source.extension.ifBlank { request.format.extension }
             val displayName = MediaExportPolicy.sanitizeDisplayName(
-                source.name,
+                request.filenamePrefix.orEmpty() + source.name,
                 actualExtension,
             )
             if (request.format.requiresAudioTranscode) {

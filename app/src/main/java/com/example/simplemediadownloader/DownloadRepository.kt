@@ -135,12 +135,7 @@ class DownloadRepository(
             val execution = collectEngineStates(request, destination, attemptId, onState)
             when (execution) {
             is DownloadExecutionResult.Success -> {
-                if (taskAttemptGenerations[request.id] != attemptId) {
-                    val finalRecord = historyStore.get(request.id)
-                    if (finalRecord?.status == DownloadTaskStatus.CANCELLED) {
-                        return DownloadState.Cancelled
-                    }
-                }
+                if (taskAttemptGenerations[request.id] != attemptId) return DownloadState.Cancelled
                 publishState(
                     request.id,
                     DownloadState.Saving(
@@ -171,11 +166,8 @@ class DownloadRepository(
                     )
                 }
                 if (taskAttemptGenerations[request.id] != attemptId) {
-                    val finalRecord = historyStore.get(request.id)
-                    if (finalRecord?.status == DownloadTaskStatus.CANCELLED) {
-                        withContext(kotlinx.coroutines.NonCancellable) { storageExporter.deleteOutput(output) }
-                        return DownloadState.Cancelled
-                    }
+                    withContext(kotlinx.coroutines.NonCancellable) { storageExporter.deleteOutput(output) }
+                    return DownloadState.Cancelled
                 }
                 terminal(request.id, DownloadState.Completed(output), attemptId, onState)
             }
@@ -206,16 +198,32 @@ class DownloadRepository(
         }
     }
 
+    suspend fun batchDisposition(taskId: String): String? = historyStore.batchDisposition(taskId)
+    private suspend fun canAdmit(taskId: String): Boolean = batchDisposition(taskId).let { it == null || it in setOf("QUEUED", "RUNNING") }
+
+    suspend fun pauseForBatch(taskId: String): Boolean {
+        taskAttemptGenerations.compute(taskId) { _, current -> (current ?: 0L) + 1L }
+        downloadEngine.cancel(taskId)
+        return taskMutexes.computeIfAbsent(taskId) { Mutex() }.withLock {
+            val record = historyStore.get(taskId) ?: return@withLock false
+            if (record.status !in setOf(DownloadTaskStatus.RUNNING, DownloadTaskStatus.QUEUED)) return@withLock false
+            historyStore.update(record.copy(status = DownloadTaskStatus.QUEUED, stage = DownloadProcessingStage.QUEUED,
+                progressPercent = null, downloadedBytes = null, totalBytes = record.format.estimatedSizeBytes,
+                speedBytesPerSecond = null, etaSeconds = null))
+            true
+        }
+    }
+
     suspend fun queuedRequests(): List<DownloadRequest> = historyStore.activeTasks.first()
-        .filter { it.status == DownloadTaskStatus.QUEUED }
+        .filter { it.status == DownloadTaskStatus.QUEUED && canAdmit(it.taskId) }
         .sortedBy(DownloadRecord::createdAt)
         .map(DownloadRecord::toRequest)
 
     suspend fun request(taskId: String): DownloadRequest? =
         historyStore.get(taskId)
             ?.takeIf {
-                it.status == DownloadTaskStatus.QUEUED ||
-                    it.status == DownloadTaskStatus.RUNNING
+                (it.status == DownloadTaskStatus.QUEUED ||
+                    it.status == DownloadTaskStatus.RUNNING) && canAdmit(it.taskId)
             }
             ?.toRequest()
 
@@ -226,9 +234,11 @@ class DownloadRepository(
             persistState(processId, DownloadState.Cancelled)
             return true
         }
-        val cancelled = downloadEngine.cancel(processId)
-        if (cancelled) persistState(processId, DownloadState.Cancelled)
-        return cancelled
+        if (record.status != DownloadTaskStatus.RUNNING) return false
+        downloadEngine.cancel(processId)
+        // Cancellation also covers decoder setup and export, where the engine may have no active call.
+        persistState(processId, DownloadState.Cancelled)
+        return true
     }
 
     suspend fun recoverInterruptedTasks(): Int = historyStore.recoverRunningTasks(
@@ -278,6 +288,7 @@ class DownloadRepository(
 
     suspend fun restoreRecoverableTasks(): List<DownloadRequest> {
         recoverInterruptedTasks()
+        historyStore.cancelCancelledBatchChildren()
         historyStore.requeueInterruptedTasks()
         return queuedRequests()
     }
@@ -303,6 +314,8 @@ class DownloadRepository(
     }
 
     suspend fun clearCompletedHistory(): Int = historyStore.clearCompletedHistory()
+
+    suspend fun savedOutputExists(output: DownloadOutput): Boolean = storageExporter.outputExists(output)
 
     suspend fun cleanupAbandonedExports(): Int = storageExporter.cleanupAbandonedExports()
 
@@ -421,7 +434,7 @@ class DownloadRepository(
     ) {
         val mutex = taskMutexes.computeIfAbsent(taskId) { Mutex() }
         mutex.withLock {
-            if (attemptId != null && taskAttemptGenerations[taskId] != attemptId && state !is DownloadState.Cancelled) {
+            if (attemptId != null && taskAttemptGenerations[taskId] != attemptId) {
                 return
             }
             val current = historyStore.get(taskId) ?: return
@@ -444,6 +457,7 @@ private fun DownloadRequest.toQueuedRecord(createdAt: Long): DownloadRecord = Do
     platform = PlatformResolver.fromUrl(url),
     format = format,
     author = author,
+    batchId = batchId, batchIndex = batchIndex, sourceItemId = sourceItemId, filenamePrefix = filenamePrefix,
     status = DownloadTaskStatus.QUEUED,
     stage = DownloadProcessingStage.QUEUED,
     progressPercent = null,
@@ -466,6 +480,7 @@ private fun DownloadRecord.toRequest(): DownloadRequest = DownloadRequest(
     title = displayTitle,
     format = format,
     author = author,
+    batchId = batchId, batchIndex = batchIndex, sourceItemId = sourceItemId, filenamePrefix = filenamePrefix,
 )
 
 private fun DownloadRecord.transitionTo(state: DownloadState, now: Long): DownloadRecord {
