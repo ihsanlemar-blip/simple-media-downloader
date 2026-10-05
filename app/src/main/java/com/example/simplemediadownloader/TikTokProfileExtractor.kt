@@ -32,15 +32,13 @@ class TikTokProfileExtractor internal constructor(private val http: ProfileHttpC
                     .addQueryParameter("aid", "1988").addQueryParameter("secUid", secUid).addQueryParameter("cursor", "0").addQueryParameter("count", "30").build().toString())) }
                 catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
                 catch (error: Exception) {
-                    val publicKnown = (user?.has("privateAccount") == true && !user.optBoolean("privateAccount")) || (user?.has("secret") == true && !user.optBoolean("secret"))
-                    if (publicKnown && allowGateway() && gateway != null) return loadGateway(address, "0")
-                    throw ProfileDiscoveryException("Could not load recent public posts. Direct public access is limited; third-party profile fallback is disabled or unavailable.")
+                    return publicFallback(address, user)
                 }
-            if (feed.optInt("statusCode", 0) != 0) throw ProfileDiscoveryException("Could not load recent public posts. The platform may require sign-in.")
+            if (feed.optInt("statusCode", 0) != 0) return publicFallback(address, user)
             items = feed.optJSONArray("itemList") ?: feed.optJSONArray("list")?.let { ids -> JSONArray().apply {
                 val module = json.optJSONObject("ItemModule")
                 for (i in 0 until ids.length()) module?.optJSONObject(ids.optString(i))?.let { put(it) }
-            } } ?: throw ProfileDiscoveryException("Profile format changed and requires an app update.")
+            } } ?: return publicFallback(address, user)
         } else {
             val state = JSONObject(cursor)
             secUid = state.getString("secUid").also { require(it.length in 1..256) }
@@ -64,6 +62,35 @@ class TikTokProfileExtractor internal constructor(private val http: ProfileHttpC
         val next = if (hasMore) feed.text("cursor")?.let { JSONObject().put("secUid", secUid).put("cursor", it).toString() }
             ?: throw ProfileDiscoveryException("Could not load more posts.") else null
         return ProfileSourcePage(profileInfo(address, user?.text("nickname"), user?.text("avatarLarger")), posts, next)
+    }
+    private suspend fun publicFallback(address: ProfileAddress, user: JSONObject?): ProfileSourcePage {
+        try { return loadPublicEmbed(address) }
+        catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (error: ProfileDiscoveryException) { if (error.userMessage.contains("private", true)) throw error }
+        catch (_: Exception) { /* A changed embed contract can still use the existing explicit gateway opt-in. */ }
+        val publicKnown = (user?.has("privateAccount") == true && !user.optBoolean("privateAccount")) || (user?.has("secret") == true && !user.optBoolean("secret"))
+        if (publicKnown && allowGateway() && gateway != null) return loadGateway(address, "0")
+        throw ProfileDiscoveryException("Could not load recent public posts. Direct public access is limited; third-party profile fallback is disabled or unavailable.")
+    }
+    private suspend fun loadPublicEmbed(address: ProfileAddress): ProfileSourcePage {
+        val page = TikTokPublicEmbed.page(http.get("https://www.tiktok.com/embed/@${address.handle}"), "/embed/@${address.handle}")
+            ?: throw ProfileDiscoveryException("Profile format changed and requires an app update.")
+        val user = page.optJSONObject("userInfo") ?: throw ProfileDiscoveryException("Could not load public posts.")
+        if (user.optBoolean("privateAccount")) throw ProfileDiscoveryException("Profile is private.")
+        if (!user.has("privateAccount") || !user.text("uniqueId").equals(address.handle, true)) throw ProfileDiscoveryException("Could not verify this public profile.")
+        val videos = page.optJSONArray("videoList") ?: throw ProfileDiscoveryException("Could not load public posts.")
+        val posts = (0 until minOf(videos.length(), 100)).mapNotNull { index ->
+            val item = videos.optJSONObject(index) ?: return@mapNotNull null
+            if (item.optBoolean("privateItem")) return@mapNotNull null
+            val id = item.text("id")?.takeIf { it.matches(Regex("[0-9]{1,30}")) } ?: return@mapNotNull null
+            val owner = item.text("authorUniqueId")
+            if (owner != null && !owner.equals(address.handle, true)) return@mapNotNull null
+            CollectionItem(id, "https://www.tiktok.com/@${address.handle}/video/$id", item.text("desc"), "@${address.handle}", item.text("coverUrl"),
+                item.optLong("duration").takeIf { it > 0 }, index, publishedAtSeconds = item.optLong("createTime").takeIf { it > 0 })
+        }
+        val next = if (posts.isNotEmpty() && allowGateway() && gateway != null) JSONObject().put("gateway", true).put("cursor", "0").toString() else null
+        return ProfileSourcePage(profileInfo(address, user.text("nickname")), posts, next,
+            "TikTok's public embed exposes a limited recent feed; no further public continuation is available.")
     }
     private suspend fun loadGateway(address: ProfileAddress, cursor: String): ProfileSourcePage {
         if (!allowGateway() || gateway == null) throw ProfileDiscoveryException("Third-party profile discovery is disabled in Settings.")

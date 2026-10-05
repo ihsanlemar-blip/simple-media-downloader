@@ -24,9 +24,12 @@ object TikTokExtractor {
     ): FormatDiscoveryResult {
         // Tier 1: Universal SSR rehydration and mobile web scraper with session cookie preservation
         val webCatalog = tryTikTokWebScrape(client, url)
-        if (webCatalog != null && webCatalog.videoFormats.isNotEmpty()) {
+        if (webCatalog != null && webCatalog.videoFormats.isNotEmpty() && !isDenied(client, webCatalog.videoFormats.first())) {
             return FormatDiscoveryResult.Success(webCatalog)
         }
+
+        val embedCatalog = tryPublicEmbed(client, url)
+        if (embedCatalog != null) return FormatDiscoveryResult.Success(embedCatalog)
 
         if (allowThirdPartyGateways) {
             // Tier 2: TikWM Public High-Speed API (Watermark-free HD, MP3 audio, full metadata)
@@ -36,6 +39,10 @@ object TikTokExtractor {
             }
         }
 
+        // A failed fallback must not discard a previously discovered catalog: another
+        // source or a refreshed signed URL can still work through the existing downloader.
+        if (webCatalog != null && webCatalog.videoFormats.isNotEmpty()) return FormatDiscoveryResult.Success(webCatalog)
+
         return FormatDiscoveryResult.Failure(
             if (!allowThirdPartyGateways) {
                 "Could not extract video stream directly from TikTok. Third-party fallback is disabled in settings."
@@ -44,6 +51,24 @@ object TikTokExtractor {
             },
         )
     }
+
+    private fun isDenied(client: OkHttpClient, format: AvailableFormat): Boolean = try {
+        val request = Request.Builder().url(format.formatId).header("Range", "bytes=0-0")
+            .apply { format.httpHeaders?.forEach { (key, value) -> header(key, value) } }.build()
+        client.newBuilder().connectTimeout(java.time.Duration.ofSeconds(4)).readTimeout(java.time.Duration.ofSeconds(4)).build()
+            .newCall(request).execute().use { it.code in setOf(401, 403) }
+    } catch (_: Exception) { false } // Unknown/transient probe failures preserve the existing source path.
+
+    private fun tryPublicEmbed(client: OkHttpClient, url: String): MediaFormatCatalog? = try {
+        val id = TikTokPublicEmbed.videoId(url)
+        if (id == null) null else {
+            val request = Request.Builder().url("https://www.tiktok.com/embed/v2/$id").header("User-Agent", USER_AGENT).build()
+            client.newBuilder().cookieJar(ScopedCookieJar()).dns(SafeDns())
+                .addInterceptor(SecurityInterceptor(allowCleartextHttp = false)).build().newCall(request).execute().use { response ->
+                if (!response.isSuccessful) null else TikTokPublicEmbed.catalog(response.body?.readBoundedString().orEmpty(), url, id)
+            }
+        }
+    } catch (_: Exception) { null }
 
     private fun tryTikWmApi(client: OkHttpClient, url: String): MediaFormatCatalog? {
         return try {

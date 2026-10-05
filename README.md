@@ -320,11 +320,17 @@ by post ID, cancellable and persisted in Room schema 9, including dates/page cur
 Known dates retain newest-first order; unknown dates retain the public feed order.
 
 TikTok, Instagram, Facebook, X/Twitter and Reddit have independent profile adapters.
-TikTok reads public profile metadata and the public recent-post endpoint. If direct
-access is limited, its existing third-party gateway opt-in can permit TikWM fallback
-for a profile verified public. The chooser discloses this: username, count and cursor
+TikTok reads public profile metadata and the public recent-post endpoint. When that
+endpoint is blocked or empty, it tries TikTok’s official creator embed. The embed
+may expose only a small recent feed (nine posts in a public manual check); it has
+no public continuation, and missing durations/dates remain unknown. Its existing
+third-party gateway opt-in can permit TikWM continuation for a verified public profile. The chooser discloses this: username, count and cursor
 are sent, never origin cookies. Private profiles never use that fallback. Normal
-single-post extraction and its existing gateway policy remain unchanged.
+single-post extraction also tries TikTok’s official video embed when ordinary web
+streams return 401/403. Embed audio uses the post’s audio track through the common
+native-audio/MP3 pipeline. The existing gateway opt-in policy remains in force.
+Facebook shared links that cannot resolve now request the direct reel/video URL;
+this does not bypass Facebook access restrictions.
 
 Instagram uses its public web profile/timeline metadata endpoints, skips photo-only
 posts, and returns canonical post URLs. Private profiles and sign-in requirements

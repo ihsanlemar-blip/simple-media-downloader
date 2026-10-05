@@ -52,7 +52,9 @@ object FacebookExtractor {
         }
 
         return FormatDiscoveryResult.Failure(
-            "Could not find a public video stream in this Facebook link. It may be private or restricted.",
+            if (url.contains("/share/") && resolvedUrl.contains("/share/")) {
+                "Facebook could not resolve this shared link. Open it in a browser and copy the direct reel or video URL."
+            } else "Could not find a public video stream in this Facebook link. It may be private or restricted.",
         )
     }
 
